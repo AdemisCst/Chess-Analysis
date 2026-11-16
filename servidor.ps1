@@ -1,6 +1,6 @@
 # ==========================================================================
 # ARQUIVO: servidor.ps1
-# DESCRIÇÃO: Servidor HTTP local mínimo (sem dependências) para o Acervo 64.
+# DESCRIÇÃO: Servidor HTTP local mínimo (sem dependências) para o Chess Analysis.
 # Por que existe: o Stockfish roda em Web Worker e carrega um arquivo .wasm.
 # Navegadores bloqueiam esses recursos quando a página é aberta como arquivo
 # local (file://). Servir a pasta em http://localhost resolve isso.

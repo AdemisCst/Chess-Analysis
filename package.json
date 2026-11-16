@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Acervo 64 — organizador de partidas de xadrez com análise local, estatísticas e assistente opcional.",
+  "description": "Chess Analysis — organizador de partidas de xadrez com análise local, estatísticas e assistente opcional.",
   "scripts": {
     "serve": "powershell -NoProfile -ExecutionPolicy Bypass -File ./servidor.ps1",
     "check": "node ./tools/check-syntax.cjs"
