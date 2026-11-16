@@ -1,0 +1,11 @@
+Peças de xadrez "cburnett"
+
+Autor: Colin M.L. Burnett
+Licença: Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)
+https://creativecommons.org/licenses/by-sa/3.0/
+
+Obtidas do repositório público do Lichess:
+https://github.com/lichess-org/lila/tree/master/public/piece/cburnett
+
+Elas são usadas como conjunto visual do tabuleiro. A licença exige atribuição e o
+compartilhamento de eventuais modificações sob a mesma licença.

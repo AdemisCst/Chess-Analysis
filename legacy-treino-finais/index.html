@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<!-- ========================================================================
+   ARQUIVO: index.html
+   DESCRIÇÃO: Estrutura principal da aplicação "Xadrez Tático - Treino de Finais".
+   Este arquivo HTML define todas as telas da aplicação:
+     1) Tela de Login / Cadastro
+     2) Tela Principal (App) com layout de 3 colunas
+     3) Modal do Editor/Validador de posição de diagrama (diagrama do PDF)
+     4) Modal de Backup (exportar/importar JSON)
+   
+   COMO USAR ESTE ARQUIVO:
+   - Abra este arquivo diretamente no navegador (duplo clique).
+   - Não é necessário servidor. Ele carrega bibliotecas via internet (CDN).
+   - Não edite este arquivo para mudar cores; edite style.css.
+   - Não edite este arquivo para mudar lógica; edite script.js.
+   - Caso queira adicionar um novo botão, duplique um <button> existente
+     e registre o evento de clique correspondente em script.js.
+   
+   ÍNDICE DAS SEÇÕES:
+     SEÇÃO 01 - <head>: metadados, fontes, bibliotecas CDN, link ao CSS
+     SEÇÃO 02 - Tela de Login / Cadastro (visível antes do login)
+     SEÇÃO 03 - Tela Principal do App (visível após login)
+       03.01 - Cabeçalho (tema, backup, sair, nome do usuário)
+       03.02 - Coluna Esquerda: biblioteca, upload de PDF, lista de exercícios, estatísticas
+       03.03 - Coluna Central: objetivo, turno, tabuleiro, botões de controle, feedback
+       03.04 - Coluna Direita: histórico de lances, explicação didática, variantes
+     SEÇÃO 04 - Modal: Editor/Validador de posição do diagrama (imagem do PDF)
+     SEÇÃO 05 - Modal: Backup de progresso (exportar/importar JSON)
+     SEÇÃO 06 - Scripts (bibliotecas CDN e nosso script.js)
+   ======================================================================== -->
+
+<html lang="pt-BR">
+<head>
+    <!-- ===================== SEÇÃO 01 - <head> ===================== -->
+    <!-- Define codificação de caracteres para aceitar acentos (ç, ã, õ, etc.) -->
+    <meta charset="UTF-8">
+    <!-- Faz o site se adaptar ao tamanho da tela (celular, tablet, desktop) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Título que aparece na aba do navegador -->
+    <title>Xadrez Tático - Treino de Finais (PDF)</title>
+
+    <!-- Ícone da aba (favicon) usando um emoji de peão de xadrez em SVG -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♟</text></svg>">
+
+    <!-- Fonte moderna e legível do Google Fonts (carregada via internet/CDN) -->
+    <!-- Inter para textos normais, JetBrains Mono para notação de lances (monoespaçada) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+    <!-- Biblioteca chessboard.js (desenha o tabuleiro visual) - apenas o CSS -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css"
+          crossorigin="anonymous" referrerpolicy="no-referrer">
+
+    <!-- Nosso arquivo CSS customizado (cores, layout, tema claro/escuro) -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- ===================== SEÇÃO 02 - Tela de Login / Cadastro ===================== -->
+    <!-- Esta tela é mostrada enquanto o usuário não estiver logado.
+         Os dados ficam salvos apenas no navegador (localStorage). -->
+    <div id="loginScreen" class="screen active">
+        <!-- Card centralizado que contém o formulário -->
+        <div class="login-card">
+            <!-- Logo e título da aplicação -->
+            <div class="login-logo">
+                <span class="logo-piece">♚</span>  <!-- emoji de rei preto -->
+                <h1>Xadrez Tático</h1>
+                <p class="subtitle">Treino de Finais a partir de PDFs</p>
+            </div>
+
+            <!-- Abas para alternar entre "Entrar" e "Cadastrar" -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="login">Entrar</button>
+                <button class="tab-btn" data-tab="register">Cadastrar</button>
+            </div>
+
+            <!-- Formulário de Login (visível por padrão) -->
+            <form id="loginForm" class="form active">
+                <label for="loginEmail">E-mail</label>
+                <input type="text" id="loginEmail" placeholder="seu@email.com" required autocomplete="username">
+
+                <label for="loginPassword">Senha</label>
+                <input type="password" id="loginPassword" placeholder="••••••" required autocomplete="current-password">
+
+                <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+                <!-- Dica didática para o usuário leigo -->
+                <p class="form-hint">Dica: os dados ficam salvos apenas neste navegador (localStorage).</p>
+            </form>
+
+            <!-- Formulário de Cadastro (escondido até clicar na aba "Cadastrar") -->
+            <form id="registerForm" class="form">
+                <label for="regName">Nome</label>
+                <input type="text" id="regName" placeholder="Seu nome" required autocomplete="name">
+
+                <label for="regEmail">E-mail</label>
+                <input type="email" id="regEmail" placeholder="seu@email.com" required autocomplete="email">
+
+                <label for="regPassword">Senha</label>
+                <input type="password" id="regPassword" placeholder="Crie uma senha" required autocomplete="new-password">
+
+                <button type="submit" class="btn btn-primary btn-block">Criar Conta</button>
+            </form>
+
+            <!-- Área de mensagens (erro ou sucesso) exibida dinamicamente pelo JavaScript -->
+            <div id="loginMessage" class="message hidden"></div>
+        </div>
+    </div>
+
+    <!-- ===================== SEÇÃO 03 - Tela Principal do App ===================== -->
+    <!-- Esta tela aparece apenas após o login. Layout em 3 colunas. -->
+    <div id="appScreen" class="screen">
+        
+        <!-- 03.01 - Cabeçalho fixo no topo -->
+        <header class="app-header">
+            <div class="header-left">
+                <span class="logo-piece small">♚</span>
+                <h2>Xadrez Tático</h2>
+                <!-- Título do livro atualmente carregado -->
+                <span id="currentBookTitle" class="book-title">Nenhum livro carregado</span>
+            </div>
+            <div class="header-right">
+                <!-- Botão para alternar entre tema claro e escuro -->
+                <button id="themeToggle" class="btn btn-ghost" title="Alternar tema claro/escuro">🌙</button>
+                <!-- Botão para abrir o modal de backup (exportar/importar) -->
+                <button id="backupBtn" class="btn btn-ghost" title="Backup (exportar/importar progresso)">💾</button>
+                <!-- Nome do usuário logado -->
+                <span id="userName" class="user-name"></span>
+                <!-- Botão para sair da conta -->
+                <button id="logoutBtn" class="btn btn-ghost" title="Sair da conta">Sair</button>
+            </div>
+        </header>
+
+        <!-- Corpo principal: 3 colunas (esquerda, centro, direita) -->
+        <main class="app-main">
+            
+            <!-- 03.02 - COLUNA ESQUERDA: Biblioteca de exercícios e upload de PDF -->
+            <aside class="col col-left">
+                <div class="panel">
+                    <h3>📚 Biblioteca</h3>
+
+                    <!-- Área de Drag & Drop para subir arquivo PDF -->
+                    <div id="dropZone" class="drop-zone">
+                        <div class="drop-zone-inner">
+                            <span class="drop-icon">📄</span>
+                            <p>Arraste um PDF aqui<br>ou clique para selecionar</p>
+                            <!-- Input de arquivo escondido; aberto ao clicar na área ou soltar o PDF -->
+                            <input type="file" id="pdfInput" accept="application/pdf" hidden>
+                        </div>
+                        <!-- Barra de progresso (aparece enquanto processa o PDF) -->
+                        <div id="uploadProgress" class="progress hidden">
+                            <div class="progress-bar" id="progressBar"></div>
+                            <span id="progressText">Processando...</span>
+                        </div>
+                    </div>
+
+                    <!-- Seletor de qual livro está ativo (quando houver mais de um importado) -->
+                    <label for="bookSelect" class="label">Livro ativo:</label>
+                    <select id="bookSelect" class="select"></select>
+
+                    <!-- Lista de capítulos e exercícios com status (✅ ❌ ⚪) -->
+                    <div id="exerciseList" class="exercise-list">
+                        <p class="empty-hint">Importe um PDF para começar.</p>
+                    </div>
+
+                    <!-- Estatísticas rápidas do usuário (resolvidos, erros, taxa de acerto) -->
+                    <div class="stats">
+                        <div class="stat"><span class="stat-label">Resolvidos</span><span id="statSolved" class="stat-value">0</span></div>
+                        <div class="stat"><span class="stat-label">Erros</span><span id="statErrors" class="stat-value">0</span></div>
+                        <div class="stat"><span class="stat-label">Acerto</span><span id="statRate" class="stat-value">0%</span></div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 03.03 - COLUNA CENTRAL: Tabuleiro interativo e controles -->
+            <section class="col col-center">
+                <div class="panel board-panel">
+                    <!-- Cabeçalho do exercício atual (número e objetivo) -->
+                    <div class="exercise-header">
+                        <span id="exerciseNumber" class="exercise-number">—</span>
+                        <span id="exerciseObjective" class="exercise-objective">Selecione um exercício</span>
+                    </div>
+
+                    <!-- Indicador de vez (ex: "Vez das Brancas") -->
+                    <div id="turnIndicator" class="turn-indicator">Vez das Brancas</div>
+
+                    <!-- Aqui o JavaScript desenha o tabuleiro (biblioteca chessboard.js) -->
+                    <div id="board" class="board-container"></div>
+
+                    <!-- Botões de controle do treino -->
+                    <div class="controls">
+                        <button id="restartBtn" class="btn btn-secondary">🔄 Reiniciar</button>
+                        <button id="hintBtn" class="btn btn-secondary">💡 Dica</button>
+                        <button id="solutionBtn" class="btn btn-secondary">📖 Ver Solução</button>
+                        <button id="nextBtn" class="btn btn-primary">Próximo ➡</button>
+                    </div>
+
+                    <!-- Feedback visual após cada lance (correto/errado/info) -->
+                    <div id="moveFeedback" class="move-feedback hidden"></div>
+                </div>
+            </section>
+
+            <!-- 03.04 - COLUNA DIREITA: Histórico, explicação e variantes -->
+            <aside class="col col-right">
+                <!-- Painel: Histórico de lances jogados no exercício atual -->
+                <div class="panel">
+                    <h3>📜 Histórico de Lances</h3>
+                    <div id="moveHistory" class="move-history">
+                        <p class="empty-hint">Nenhum lance ainda.</p>
+                    </div>
+                </div>
+
+                <!-- Painel: Explicação didática gerada após o lance -->
+                <div class="panel">
+                    <h3>🎓 Explicação Didática</h3>
+                    <div id="explanationPanel" class="explanation-panel">
+                        <p class="empty-hint">Jogue um lance para ver a explicação.</p>
+                    </div>
+                </div>
+
+                <!-- Painel: Variantes alternativas citadas no gabarito do livro -->
+                <div class="panel">
+                    <h3>🔀 Variantes do Livro</h3>
+                    <div id="variantsPanel" class="variants-panel">
+                        <p class="empty-hint">Sem variantes.</p>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- ===================== SEÇÃO 04 - Modal: Editor de Posição ===================== -->
+    <!-- Abre após extrair a imagem do diagrama do PDF.
+         Permite clicar em cada casa para corrigir a peça (fallback manual). -->
+    <div id="positionEditorModal" class="modal hidden">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>Editar Posição do Diagrama</h3>
+                <button class="modal-close" data-close="positionEditorModal">✕</button>
+            </div>
+            <div class="modal-body editor-body">
+                <!-- Imagem original extraída do PDF (serve de referência visual) -->
+                <div class="editor-ref">
+                    <h4>Imagem original (referência)</h4>
+                    <canvas id="refCanvas" width="320" height="320"></canvas>
+                    <p class="hint">Use a imagem como referência e corrija a grade ao lado.</p>
+                </div>
+                <!-- Grade editável 8x8 (clique para ciclar a peça da casa) -->
+                <div class="editor-grid-wrap">
+                    <h4>Grade editável (clique para ciclar peça)</h4>
+                    <div id="editorGrid" class="editor-grid"></div>
+                    <div class="editor-tools">
+                        <label>Quem joga:</label>
+                        <select id="editorSide" class="select">
+                            <option value="w">Brancas</option>
+                            <option value="b">Pretas</option>
+                        </select>
+                        <label>Objetivo:</label>
+                        <input type="text" id="editorObjective" placeholder="ex: Brancas jogam e ganham" class="input">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="autoDetectBtn" class="btn btn-secondary">🤖 Detectar automaticamente</button>
+                <button id="clearBoardBtn" class="btn btn-secondary">Limpar tabuleiro</button>
+                <button id="savePositionBtn" class="btn btn-primary">Salvar posição</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== SEÇÃO 05 - Modal: Backup ===================== -->
+    <!-- Permite exportar todo o progresso para um arquivo JSON e importar depois. -->
+    <div id="backupModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Backup de Progresso</h3>
+                <button class="modal-close" data-close="backupModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <p>Exporte seus dados para um arquivo JSON ou importe um backup anterior.</p>
+                <button id="exportBackupBtn" class="btn btn-primary btn-block">⬇ Exportar Backup (JSON)</button>
+                <hr>
+                <label for="importBackupInput" class="label">Importar backup:</label>
+                <input type="file" id="importBackupInput" accept="application/json">
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== SEÇÃO 06 - Scripts ===================== -->
+    <!-- Bibliotecas carregadas via CDN (internet). Ordem importa: jQuery antes do chessboard.js. -->
+    
+    <!-- PDF.js: lê arquivos PDF no navegador (extração de texto e renderização de páginas) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <!-- jQuery: dependência necessária pelo chessboard.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <!-- chessboard.js: desenha o tabuleiro visual interativo (peças arrastáveis) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <!-- chess.js: motor de regras do xadrez (valida lances, FEN, xeque, xeque-mate) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <!-- Nosso script principal com toda a lógica da aplicação -->
+    <script src="script.js"></script>
+</body>
+</html>
+<!-- FIM DO ARQUIVO index.html -->

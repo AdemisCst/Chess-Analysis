@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<!-- ========================================================================
+   ARQUIVO: index.html
+   PROJETO: Acervo 64 — Organizador de partidas de xadrez (PGN)
+   DESCRIÇÃO: Estrutura de todas as telas da aplicação.
+   Como usar: execute "iniciar.bat" (recomendado) ou abra este arquivo
+   diretamente no navegador (a análise com Stockfish exige o iniciar.bat).
+
+   SEÇÕES:
+     01 - Cabeçalho e navegação
+     02 - Biblioteca (lista, busca e importação de PGN)
+     03 - Partida (tabuleiro, lances, análise e IA)
+     04 - Estatísticas
+     05 - IA (insights, repertório e chat)
+     06 - Ajustes
+     07 - Modal genérico, avisos e scripts
+   ======================================================================== -->
+
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acervo 64 — Organizador de Partidas</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♞</text></svg>">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===================== 01 - CABEÇALHO E NAVEGAÇÃO ===================== -->
+<header class="app-header">
+    <div class="brand">
+        <span class="brand-piece">♞</span>
+        <div class="brand-text">
+            <h1>Acervo 64</h1>
+            <p>Organizador de partidas PGN</p>
+        </div>
+    </div>
+
+    <div class="header-actions">
+        <button id="importBtn" class="btn btn-primary">＋ Importar PGN</button>
+        <button id="exportBtn" class="btn btn-secondary">⇩ Exportar</button>
+        <button id="aiStatusChip" class="status-chip offline" title="Status do assistente de IA">
+            <span class="dot" aria-hidden="true"></span><span id="aiStatusText">Assistente: verificando…</span>
+        </button>
+        <button id="themeBtn" class="btn btn-icon" title="Alternar tema claro/escuro">🌙</button>
+    </div>
+    <!-- Input de arquivos usado pelo botão Importar e pela área de arrastar -->
+    <input type="file" id="fileInput" accept=".pgn,.txt" multiple hidden>
+</header>
+
+<div id="protocolBanner" class="protocol-banner hidden">
+    <strong>Modo arquivo local.</strong>
+    A biblioteca e a IA funcionam, mas a análise com Stockfish precisa de um servidor local.
+    Abra o projeto com <code>iniciar.bat</code> — o acervo aberto por <code>file://</code> é separado do acervo do servidor.
+</div>
+
+<div class="app-layout">
+    <!-- Barra de navegação lateral -->
+    <nav class="rail" aria-label="Navegação principal">
+        <button class="rail-btn active" data-view="library" title="Biblioteca">
+            <span class="rail-icon">📚</span><span>Biblioteca</span>
+        </button>
+        <button class="rail-btn" data-view="game" title="Partida">
+            <span class="rail-icon">♟</span><span>Partida</span>
+        </button>
+        <button class="rail-btn" data-view="stats" title="Estatísticas">
+            <span class="rail-icon">📊</span><span>Estatísticas</span>
+        </button>
+        <button class="rail-btn" data-view="ai" title="Assistente de IA">
+            <span class="rail-icon" aria-hidden="true">🤖</span><span>Assistente</span>
+        </button>
+        <button class="rail-btn" data-view="settings" title="Ajustes">
+            <span class="rail-icon">⚙</span><span>Ajustes</span>
+        </button>
+        <div class="rail-foot" id="railCount"></div>
+    </nav>
+
+    <main class="views">
+
+        <!-- ===================== 02 - BIBLIOTECA ===================== -->
+        <section id="view-library" class="view active" aria-label="Biblioteca de partidas">
+            <div class="view-head">
+                <div>
+                    <h2>Biblioteca</h2>
+                    <p class="muted" id="librarySubtitle">Importe arquivos PGN para começar.</p>
+                </div>
+                <div class="view-head-actions">
+                    <button id="loadSamplesBtn" class="btn btn-ghost">Carregar exemplos</button>
+                    <button id="clearFiltersBtn" class="btn btn-ghost">Limpar filtros</button>
+                </div>
+            </div>
+
+            <div class="library-toolbar">
+                <div class="search-wrap">
+                    <span class="search-icon">⌕</span>
+                    <input id="searchInput" class="input search-input" type="search"
+                           placeholder="Buscar por jogador, torneio, abertura ou filtros: white:Carlsen result:1-0 eco:B20">
+                </div>
+                <select id="colorFilter" class="select" title="Filtrar pela sua cor">
+                    <option value="">Todas as cores</option>
+                    <option value="w">Minhas partidas de brancas</option>
+                    <option value="b">Minhas partidas de pretas</option>
+                </select>
+                <select id="sortSelect" class="select" title="Ordenação">
+                    <option value="date_desc">Data (mais recente)</option>
+                    <option value="date_asc">Data (mais antiga)</option>
+                    <option value="white_asc">Brancas (A–Z)</option>
+                    <option value="black_asc">Pretas (A–Z)</option>
+                    <option value="length_desc">Mais lances</option>
+                    <option value="imported_desc">Importação (recente)</option>
+                </select>
+            </div>
+
+            <div id="filterChips" class="chips"></div>
+            <div id="importReport" class="import-report hidden"></div>
+
+            <div id="dropZone" class="dropzone">
+                <span class="drop-icon">⇪</span>
+                <p><strong>Arraste arquivos .pgn aqui</strong> ou clique para selecionar</p>
+                <small>Vários arquivos e várias partidas por arquivo são suportados.</small>
+            </div>
+
+            <div class="panel table-panel">
+                <div class="table-scroll">
+                    <table class="games-table">
+                        <thead>
+                        <tr>
+                            <th class="col-fav"></th>
+                            <th>Data</th>
+                            <th>Brancas</th>
+                            <th>Resultado</th>
+                            <th>Pretas</th>
+                            <th class="col-opening">Abertura</th>
+                            <th class="col-moves">Lances</th>
+                            <th class="col-tags">Tags</th>
+                            <th class="col-actions"></th>
+                        </tr>
+                        </thead>
+                        <tbody id="gamesBody"></tbody>
+                    </table>
+                </div>
+                <div id="emptyLibrary" class="empty-state hidden">
+                    <span class="empty-icon">♜</span>
+                    <h3>Nenhuma partida ainda</h3>
+                    <p>Importe seus arquivos PGN ou carregue os exemplos para explorar o aplicativo.</p>
+                    <div class="empty-actions">
+                        <button class="btn btn-primary" id="emptyImportBtn">Importar PGN</button>
+                        <button class="btn btn-secondary" id="emptySamplesBtn">Carregar exemplos</button>
+                    </div>
+                </div>
+                <div class="table-footer">
+                    <span id="listCount" class="muted"></span>
+                    <div id="pagination" class="pagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== 03 - PARTIDA ===================== -->
+        <section id="view-game" class="view" aria-label="Visualização da partida">
+            <div id="noGame" class="empty-state tall">
+                <span class="empty-icon">♞</span>
+                <h3>Nenhuma partida aberta</h3>
+                <p>Selecione uma partida na biblioteca.</p>
+                <button class="btn btn-primary" data-goto="library">Ir para a biblioteca</button>
+            </div>
+
+            <div id="gameContent" class="game-content hidden">
+                <div class="view-head game-head">
+                    <div>
+                        <button id="backToLibrary" class="link-btn">← Biblioteca</button>
+                        <h2 id="gameTitle">—</h2>
+                        <p class="muted" id="gameSubtitle"></p>
+                    </div>
+                    <div class="view-head-actions">
+                        <button id="favBtn" class="btn btn-ghost" title="Favoritar">☆</button>
+                        <button id="analyzeBtn" class="btn btn-secondary">⚡ Analisar</button>
+                        <button id="aiSummaryBtn" class="btn btn-secondary">🤖 Resumo IA</button>
+                        <button id="aiTagsBtn" class="btn btn-ghost">🏷 Tags IA</button>
+                        <button id="copyPgnBtn" class="btn btn-ghost">Copiar PGN</button>
+                        <button id="deleteGameBtn" class="btn btn-ghost danger">Excluir</button>
+                    </div>
+                </div>
+
+                <div id="analysisBar" class="analysis-bar hidden">
+                    <div class="progress-track"><div id="analysisFill" class="progress-fill"></div></div>
+                    <span id="analysisText">Analisando…</span>
+                    <button id="cancelAnalysisBtn" class="btn btn-sm btn-ghost">Cancelar</button>
+                </div>
+
+                <div class="game-grid">
+                    <!-- Coluna esquerda: metadados -->
+                    <aside class="panel game-meta">
+                        <div class="result-banner" id="gameResult">—</div>
+                        <table class="meta-table" id="metaTable"></table>
+                        <div class="tags-block">
+                            <h4>Tags</h4>
+                            <div id="gameTags" class="chips"></div>
+                            <div class="tag-editor">
+                                <input id="tagInput" class="input input-sm" placeholder="Nova tag e Enter">
+                            </div>
+                        </div>
+                        <div class="ai-tags-block">
+                            <h4>Tags da IA</h4>
+                            <div id="gameAiTags" class="chips"></div>
+                        </div>
+                    </aside>
+
+                    <!-- Centro: tabuleiro -->
+                    <section class="panel game-board-panel">
+                        <div class="board-shell">
+                            <div class="eval-bar" title="Avaliação (brancas em cima)">
+                                <div class="eval-fill" id="evalFill"></div>
+                                <span class="eval-label top" id="evalTop">—</span>
+                                <span class="eval-label bottom" id="evalBottom">—</span>
+                            </div>
+                            <div class="board-wrap">
+                                <div id="board" class="board"></div>
+                            </div>
+                        </div>
+
+                        <div class="board-controls">
+                            <button class="btn btn-icon" id="firstBtn" title="Início (Home)">⏮</button>
+                            <button class="btn btn-icon" id="prevBtn" title="Lance anterior (←)">◀</button>
+                            <span id="plyLabel" class="ply-label">Início</span>
+                            <button class="btn btn-icon" id="nextBtn" title="Próximo lance (→)">▶</button>
+                            <button class="btn btn-icon" id="lastBtn" title="Fim (End)">⏭</button>
+                            <button class="btn btn-icon" id="flipBtn" title="Girar tabuleiro">⇅</button>
+                        </div>
+
+                        <div class="fen-row">
+                            <code id="fenText" class="fen-text">—</code>
+                            <button id="copyFenBtn" class="btn btn-sm btn-ghost">Copiar FEN</button>
+                        </div>
+                    </section>
+
+                    <!-- Direita: lances, análise e IA -->
+                    <aside class="panel game-side">
+                        <div class="tabs-sm" role="tablist">
+                            <button class="tab-sm active" data-game-tab="moves" role="tab">Lances</button>
+                            <button class="tab-sm" data-game-tab="analysis" role="tab">Análise</button>
+                            <button class="tab-sm" data-game-tab="ai" role="tab">IA</button>
+                        </div>
+
+                        <div id="gameTabMoves" class="game-tab">
+                            <div id="moveList" class="move-list"></div>
+                        </div>
+
+                        <div id="gameTabAnalysis" class="game-tab hidden">
+                            <div id="evalGraph" class="eval-graph"></div>
+                            <div id="accuracyBox" class="accuracy-box"></div>
+                            <div id="annotationLegend" class="annotation-legend" aria-label="Legenda das anotações"></div>
+                            <h4>Momentos-chave</h4>
+                            <div id="keyMoments" class="key-moments"></div>
+                            <p id="analysisHint" class="muted small">Clique em “Analisar” para gerar a análise com Stockfish.</p>
+                        </div>
+
+                        <div id="gameTabAi" class="game-tab hidden">
+                            <div id="aiSummaryBox" class="ai-output">
+                                <p class="muted small">Gere um resumo comentado da partida com o assistente.</p>
+                            </div>
+                            <h4>Tags sugeridas</h4>
+                            <div id="aiTagsBox" class="chips"></div>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== 04 - ESTATÍSTICAS ===================== -->
+        <section id="view-stats" class="view" aria-label="Estatísticas">
+            <div class="view-head">
+                <div>
+                    <h2>Estatísticas</h2>
+                    <p class="muted">Calculadas localmente a partir das partidas importadas.</p>
+                </div>
+                <div class="view-head-actions">
+                    <button id="statsToAiBtn" class="btn btn-secondary">🤖 Gerar leitura com IA</button>
+                </div>
+            </div>
+            <div id="statsIdentity" class="notice hidden"></div>
+            <div id="statsCards" class="stat-cards"></div>
+            <div class="stats-grid">
+                <div class="panel span-2">
+                    <h3>Precisão ao longo do tempo</h3>
+                    <div id="accuracyChart" class="chart"></div>
+                </div>
+                <div class="panel">
+                    <h3>Precisão e ACPL</h3>
+                    <div id="precisionPanel"></div>
+                </div>
+                <div class="panel">
+                    <h3>Distribuição das anotações</h3>
+                    <div id="annotationDistribution"></div>
+                </div>
+                <div class="panel">
+                    <h3>Precisão por fase</h3>
+                    <div id="phaseAccuracy"></div>
+                </div>
+                <div class="panel">
+                    <h3>Fase dos brilhantes</h3>
+                    <div id="brilliantPhase"></div>
+                </div>
+                <div class="panel">
+                    <h3>Aberturas mais jogadas</h3>
+                    <div id="openingsTable" class="mini-table-wrap"></div>
+                </div>
+                <div class="panel">
+                    <h3>Resultados por cor</h3>
+                    <div id="colorTable" class="mini-table-wrap"></div>
+                </div>
+                <div class="panel">
+                    <h3>Controle de tempo</h3>
+                    <div id="timeControlTable" class="mini-table-wrap"></div>
+                </div>
+                <div class="panel">
+                    <h3>Fase dos erros graves</h3>
+                    <div id="phaseChart" class="phase-chart"></div>
+                </div>
+                <div class="panel span-2">
+                    <h3>Evolução de rating</h3>
+                    <div id="ratingChart" class="chart"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== 05 - IA ===================== -->
+        <section id="view-ai" class="view" aria-label="Assistente de IA">
+            <div class="view-head">
+                <div>
+                    <h2>Assistente de IA</h2>
+                    <p class="muted">Leituras e sugestões geradas a partir do seu acervo. Você escolhe o que enviar.</p>
+                </div>
+                <div class="view-head-actions">
+                    <button id="aiRefreshStatus" class="btn btn-secondary">Verificar assistente</button>
+                    <button class="btn btn-ghost" data-goto="settings">Configurar</button>
+                </div>
+            </div>
+
+            <details class="help ai-status-details">
+                <summary>Detalhes da conexão</summary>
+                <div id="aiStatusPanel" class="panel ai-status-panel"></div>
+            </details>
+
+            <div class="ai-grid">
+                <div class="ai-column">
+                    <div class="panel">
+                        <div class="panel-head">
+                            <h3>Leitura do acervo</h3>
+                            <button id="genInsightsBtn" class="btn btn-sm btn-primary">Gerar</button>
+                        </div>
+                        <p class="muted small" id="insightsMeta">Ainda não gerado.</p>
+                        <div id="insightsBox" class="ai-output"><p class="muted small">Gere um diagnóstico das suas partidas, com pontos fortes, pontos fracos e um plano de evolução.</p></div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-head">
+                            <h3>Repertório sugerido</h3>
+                            <button id="genRepertoireBtn" class="btn btn-sm btn-primary">Gerar</button>
+                        </div>
+                        <p class="muted small" id="repertoireMeta">Ainda não gerado.</p>
+                        <div id="repertoireBox" class="ai-output"><p class="muted small">Sugestão de repertório baseada nas aberturas que você realmente joga.</p></div>
+                    </div>
+                </div>
+
+                <div class="panel chat-panel hidden" aria-hidden="true">
+                    <div class="panel-head">
+                        <h3>Conversar com a biblioteca</h3>
+                        <button id="clearChatBtn" class="btn btn-sm btn-ghost">Limpar</button>
+                    </div>
+                    <div id="chatMessages" class="chat-messages">
+                        <div class="chat-msg assistant">
+                            <p>Pergunte algo sobre as suas partidas. Exemplos:</p>
+                            <ul>
+                                <li>Em quais jogos tive problemas no final?</li>
+                                <li>Qual abertura rende mais pontos para mim?</li>
+                                <li>Quais erros se repetem nas minhas derrotas?</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div id="chatSources" class="chat-sources"></div>
+                    <form id="chatForm" class="chat-form">
+                        <input id="chatInput" class="input" placeholder="Escreva sua pergunta…" autocomplete="off">
+                        <button type="submit" class="btn btn-primary" id="chatSendBtn">Enviar</button>
+                        <button type="button" class="btn btn-ghost hidden" id="chatStopBtn">Parar</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== 06 - AJUSTES ===================== -->
+        <section id="view-settings" class="view" aria-label="Ajustes">
+            <div class="view-head">
+                <div>
+                    <h2>Ajustes</h2>
+                    <p class="muted">Preferências salvas neste navegador.</p>
+                </div>
+            </div>
+
+            <div class="settings-grid">
+                <div class="panel">
+                    <h3>Perfil e tabuleiro</h3>
+                    <label class="label" for="playerNamesInput">Seus nomes nos PGN</label>
+                    <input id="playerNamesInput" class="input" placeholder="Ex.: Silva, Carlos; SilvaCarlos">
+                    <p class="hint">Separe apelidos com ponto e vírgula. A vírgula é mantida, pois nomes de PGN costumam ser “Sobrenome, Nome”. Usado para calcular suas cores e resultados; se ficar vazio, o aplicativo tenta deduzir.</p>
+
+                    <label class="label" for="depthSelect">Profundidade do Stockfish</label>
+                    <select id="depthSelect" class="select">
+                        <option value="10">10 — muito rápida</option>
+                        <option value="12">12 — rápida (recomendada)</option>
+                        <option value="14">14 — equilibrada</option>
+                        <option value="16">16 — profunda (mais lenta)</option>
+                    </select>
+                    <p class="hint">Em máquinas mais modestas, use 10 ou 12.</p>
+                </div>
+
+                <div class="panel">
+                    <h3>Assistente de IA</h3>
+                    <p class="hint">Opcional. Usado em resumos de partida, leitura do acervo e repertório. O aplicativo continua funcionando sem ele.</p>
+                    <div class="inline-actions">
+                        <button id="testAiBtn" class="btn btn-secondary">Testar assistente</button>
+                        <button id="saveAiBtn" class="btn btn-primary">Salvar</button>
+                    </div>
+                    <div id="aiTestResult" class="test-result" role="status" aria-live="polite"></div>
+
+                    <details class="help">
+                        <summary>Configuração avançada</summary>
+                        <label class="label" for="aiEndpointInput">Endereço do serviço</label>
+                        <input id="aiEndpointInput" class="input" name="ai-endpoint" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434">
+
+                        <label class="label" for="aiModelInput">Modelo</label>
+                        <input id="aiModelInput" class="input" name="ai-model" list="aiModelList" autocomplete="off" spellcheck="false" placeholder="qwen2.5:3b">
+                        <datalist id="aiModelList"></datalist>
+                        <p class="hint">No PC, você pode usar um modelo local (Ollama) sem limites. Para 8 GB de RAM, use <code>qwen2.5:3b</code>; instale com <code>ollama pull qwen2.5:3b</code>.</p>
+                        <details class="help">
+                            <summary>Como configurar no PC</summary>
+                            <ol>
+                                <li>Instale o Ollama: <code>ollama.com/download</code>.</li>
+                                <li>No terminal, rode <code>ollama pull qwen2.5:3b</code>.</li>
+                                <li>Mantenha o Ollama aberto e clique em <strong>Testar assistente</strong>.</li>
+                                <li>Se houver erro de origem, feche o Ollama e abra com <code>set OLLAMA_ORIGINS=https://SEU-SITE.vercel.app</code> antes de iniciar.</li>
+                            </ol>
+                        </details>
+                    </details>
+                </div>
+
+                <div class="panel">
+                    <h3>Dados e backup</h3>
+                    <div class="stack-actions">
+                        <button id="exportPgnBtn" class="btn btn-secondary">Exportar todo o acervo em PGN</button>
+                        <button id="exportJsonBtn" class="btn btn-secondary">Backup completo (JSON)</button>
+                        <button id="importJsonBtn" class="btn btn-secondary">Restaurar backup (JSON)</button>
+                        <input type="file" id="jsonInput" accept=".json" hidden>
+                        <button id="analyzeAllBtn" class="btn btn-secondary">Analisar partidas pendentes</button>
+                        <button id="clearLibraryBtn" class="btn btn-ghost danger">Apagar toda a biblioteca</button>
+                    </div>
+                    <p class="hint">O backup JSON inclui partidas, tags, análises e textos da IA.</p>
+                </div>
+
+                <div class="panel">
+                    <h3>Sobre</h3>
+                    <p class="small">Acervo 64 é um aplicativo estático: seus dados ficam no IndexedDB deste navegador.</p>
+                    <ul class="about-list small">
+                        <li>Stockfish 10 (GPLv3) — análise local.</li>
+                        <li>chess.js 0.10.3 — regras e validação.</li>
+                        <li>Peças cburnett (CC BY-SA 3.0), via Lichess.</li>
+                        <li>Ollama — modelo de linguagem local opcional.</li>
+                    </ul>
+                    <p class="small muted">As licenças completas estão nas pastas <code>vendor/</code>.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<!-- ===================== 07 - MODAL, AVISOS E SCRIPTS ===================== -->
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+        <header class="modal-head">
+            <h3 id="modalTitle"></h3>
+            <button id="modalClose" class="btn btn-icon" aria-label="Fechar">✕</button>
+        </header>
+        <div id="modalBody" class="modal-body"></div>
+        <footer id="modalFooter" class="modal-foot"></footer>
+    </div>
+</div>
+
+<div id="toastHost" class="toast-host" aria-live="polite"></div>
+
+<!-- Bibliotecas locais (sem internet) -->
+<script src="vendor/chess.js" defer></script>
+<script src="js/pgn.js" defer></script>
+<script src="js/samples.js" defer></script>
+<script src="js/storage.js" defer></script>
+<script src="js/board.js" defer></script>
+<script src="js/engine.js" defer></script>
+<script src="js/ai.js" defer></script>
+<script src="js/stats.js" defer></script>
+<script src="js/app.js" defer></script>
+<script src="js/library.js" defer></script>
+<script src="js/game.js" defer></script>
+<script src="js/analytics.js" defer></script>
+<script src="js/settings.js" defer></script>
+</body>
+</html>

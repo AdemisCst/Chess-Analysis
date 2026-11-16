@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "document-generator": {
+        "type": "local",
+        "command": [
+          "cmd",
+          "/c",
+          "C:\\Program Files\\nodejs\\npx.cmd",
+          "-y",
+          "document-generator-mcp@latest"
+        ],
+        "cwd": ".",
+        "environment": {
+          "PATH": "C:\\Program Files\\nodejs;{env:PATH}"
+        },
+        "timeout": {
+          "startup": 120000,
+          "catalog": 60000
+        }
+      }
+    }
+  }
+}
