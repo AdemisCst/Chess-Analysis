@@ -1,0 +1,15 @@
+{
+  "name": "acervo-64",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Acervo 64 — organizador de partidas de xadrez com análise local, estatísticas e assistente opcional.",
+  "scripts": {
+    "serve": "powershell -NoProfile -ExecutionPolicy Bypass -File ./servidor.ps1",
+    "check": "node ./tools/check-syntax.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}

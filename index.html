@@ -20,7 +20,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Acervo 64 — Organizador de Partidas</title>
+    <title>Chess-Analysis — Organizador de Partidas</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♞</text></svg>">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -31,8 +31,7 @@
     <div class="brand">
         <span class="brand-piece">♞</span>
         <div class="brand-text">
-            <h1>Acervo 64</h1>
-            <p>Organizador de partidas PGN</p>
+            <h1>Chess-Analysis</h1>
         </div>
     </div>
 
@@ -62,6 +61,9 @@
         </button>
         <button class="rail-btn" data-view="game" title="Partida">
             <span class="rail-icon">♟</span><span>Partida</span>
+        </button>
+        <button class="rail-btn" data-view="openings" title="Aberturas">
+            <span class="rail-icon">📖</span><span>Aberturas</span>
         </button>
         <button class="rail-btn" data-view="stats" title="Estatísticas">
             <span class="rail-icon">📊</span><span>Estatísticas</span>
@@ -113,8 +115,19 @@
 
             <div id="filterChips" class="chips"></div>
             <div id="importReport" class="import-report hidden"></div>
+            <div id="bulkBar" class="bulk-bar hidden" role="region" aria-label="Ações para partidas selecionadas">
+                <strong id="bulkCount">0 selecionada(s)</strong>
+                <div class="bulk-actions">
+                    <button class="btn btn-sm btn-secondary" data-bulk="favorite">Favoritar</button>
+                    <button class="btn btn-sm btn-secondary" data-bulk="tag">Adicionar tag</button>
+                    <button class="btn btn-sm btn-secondary" data-bulk="analyze">Analisar</button>
+                    <button class="btn btn-sm btn-secondary" data-bulk="export">Exportar PGN</button>
+                    <button class="btn btn-sm btn-ghost danger" data-bulk="delete">Excluir</button>
+                    <button class="btn btn-sm btn-ghost" data-bulk="clear">Limpar seleção</button>
+                </div>
+            </div>
 
-            <div id="dropZone" class="dropzone">
+            <div id="dropZone" class="dropzone" role="button" tabindex="0" aria-label="Importar arquivos PGN">
                 <span class="drop-icon">⇪</span>
                 <p><strong>Arraste arquivos .pgn aqui</strong> ou clique para selecionar</p>
                 <small>Vários arquivos e várias partidas por arquivo são suportados.</small>
@@ -125,6 +138,7 @@
                     <table class="games-table">
                         <thead>
                         <tr>
+                            <th class="col-check"><input id="selectAllGames" type="checkbox" aria-label="Selecionar todas as partidas desta página"></th>
                             <th class="col-fav"></th>
                             <th>Data</th>
                             <th>Brancas</th>
@@ -177,6 +191,7 @@
                         <button id="aiSummaryBtn" class="btn btn-secondary">🤖 Resumo IA</button>
                         <button id="aiTagsBtn" class="btn btn-ghost">🏷 Tags IA</button>
                         <button id="copyPgnBtn" class="btn btn-ghost">Copiar PGN</button>
+                        <button id="gamePdfBtn" class="btn btn-ghost">Relatório PDF</button>
                         <button id="deleteGameBtn" class="btn btn-ghost danger">Excluir</button>
                     </div>
                 </div>
@@ -193,7 +208,12 @@
                         <div class="result-banner" id="gameResult">—</div>
                         <table class="meta-table" id="metaTable"></table>
                         <div class="tags-block">
-                            <h4>Tags</h4>
+                            <h4>Tags por lado</h4>
+                            <div id="gameSideTags" class="side-tags"></div>
+                            <p class="hint">Calculadas a partir da partida e da análise. “A favor” é o seu lado; “contra” é o adversário.</p>
+                        </div>
+                        <div class="tags-block">
+                            <h4>Tags livres</h4>
                             <div id="gameTags" class="chips"></div>
                             <div class="tag-editor">
                                 <input id="tagInput" class="input input-sm" placeholder="Nova tag e Enter">
@@ -236,16 +256,16 @@
                     <!-- Direita: lances, análise e IA -->
                     <aside class="panel game-side">
                         <div class="tabs-sm" role="tablist">
-                            <button class="tab-sm active" data-game-tab="moves" role="tab">Lances</button>
-                            <button class="tab-sm" data-game-tab="analysis" role="tab">Análise</button>
-                            <button class="tab-sm" data-game-tab="ai" role="tab">IA</button>
+                            <button class="tab-sm active" data-game-tab="moves" role="tab" id="gameTabBtnMoves" aria-controls="gameTabMoves" aria-selected="true">Lances</button>
+                            <button class="tab-sm" data-game-tab="analysis" role="tab" id="gameTabBtnAnalysis" aria-controls="gameTabAnalysis" aria-selected="false" tabindex="-1">Análise</button>
+                            <button class="tab-sm" data-game-tab="ai" role="tab" id="gameTabBtnAi" aria-controls="gameTabAi" aria-selected="false" tabindex="-1">IA</button>
                         </div>
 
-                        <div id="gameTabMoves" class="game-tab">
+                        <div id="gameTabMoves" class="game-tab" role="tabpanel" aria-labelledby="gameTabBtnMoves">
                             <div id="moveList" class="move-list"></div>
                         </div>
 
-                        <div id="gameTabAnalysis" class="game-tab hidden">
+                        <div id="gameTabAnalysis" class="game-tab hidden" role="tabpanel" aria-labelledby="gameTabBtnAnalysis">
                             <div id="evalGraph" class="eval-graph"></div>
                             <div id="accuracyBox" class="accuracy-box"></div>
                             <div id="annotationLegend" class="annotation-legend" aria-label="Legenda das anotações"></div>
@@ -254,7 +274,7 @@
                             <p id="analysisHint" class="muted small">Clique em “Analisar” para gerar a análise com Stockfish.</p>
                         </div>
 
-                        <div id="gameTabAi" class="game-tab hidden">
+                        <div id="gameTabAi" class="game-tab hidden" role="tabpanel" aria-labelledby="gameTabBtnAi">
                             <div id="aiSummaryBox" class="ai-output">
                                 <p class="muted small">Gere um resumo comentado da partida com o assistente.</p>
                             </div>
@@ -266,7 +286,34 @@
             </div>
         </section>
 
-        <!-- ===================== 04 - ESTATÍSTICAS ===================== -->
+        <!-- ===================== 04 - ABERTURAS ===================== -->
+        <section id="view-openings" class="view" aria-label="Aberturas">
+            <div class="view-head">
+                <div>
+                    <h2>Aberturas</h2>
+                    <p class="muted">Reconhecidas pela base aberta do Lichess e cruzadas com os seus resultados.</p>
+                </div>
+                <div class="view-head-actions">
+                    <label class="sr-only" for="openingsColor">Filtrar por cor</label>
+                    <select id="openingsColor" class="select">
+                        <option value="">Todas as cores</option>
+                        <option value="w">Como brancas</option>
+                        <option value="b">Como pretas</option>
+                    </select>
+                </div>
+            </div>
+            <div id="openingsIdentity" class="notice hidden"></div>
+            <div class="panel">
+                <div class="panel-head">
+                    <h3>Desempenho por abertura</h3>
+                    <span id="openingsCount" class="muted small"></span>
+                </div>
+                <div id="openingsTable" class="mini-table-wrap"></div>
+            </div>
+            <p class="hint">A detecção usa o maior prefixo conhecido de lances. A base é local e não envia nada para a internet.</p>
+        </section>
+
+        <!-- ===================== 05 - ESTATÍSTICAS ===================== -->
         <section id="view-stats" class="view" aria-label="Estatísticas">
             <div class="view-head">
                 <div>
@@ -424,7 +471,22 @@
 
                     <details class="help">
                         <summary>Configuração avançada</summary>
-                        <label class="label" for="aiEndpointInput">Endereço do serviço</label>
+                        <label class="label" for="aiModeSelect">Onde o assistente roda</label>
+                        <select id="aiModeSelect" class="select">
+                            <option value="auto">Automático (PC ou site)</option>
+                            <option value="local">Somente no meu PC</option>
+                            <option value="proxy">Somente pelo site (código)</option>
+                        </select>
+
+                        <label class="label" for="aiProxyInput">Endereço do site publicado</label>
+                        <input id="aiProxyInput" class="input" name="ai-proxy" autocomplete="off" spellcheck="false" placeholder="Deixe vazio para usar este site">
+                        <p class="hint">Em branco, o aplicativo usa o próprio endereço. Preencha só se o assistente estiver em outro domínio.</p>
+
+                        <label class="label" for="aiCodeInput">Código de acesso</label>
+                        <input id="aiCodeInput" class="input" name="ai-code" type="password" autocomplete="off" spellcheck="false" placeholder="Recebido de quem compartilhou o site">
+                        <p class="hint">Necessário quando o site publicado usa código. Fica salvo apenas neste navegador.</p>
+
+                        <label class="label" for="aiEndpointInput">Endereço do serviço no PC</label>
                         <input id="aiEndpointInput" class="input" name="ai-endpoint" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434">
 
                         <label class="label" for="aiModelInput">Modelo</label>
@@ -473,7 +535,7 @@
 </div>
 
 <!-- ===================== 07 - MODAL, AVISOS E SCRIPTS ===================== -->
-<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-card">
         <header class="modal-head">
             <h3 id="modalTitle"></h3>
@@ -494,6 +556,8 @@
 <script src="js/board.js" defer></script>
 <script src="js/engine.js" defer></script>
 <script src="js/ai.js" defer></script>
+<script src="js/openings.js" defer></script>
+<script src="js/tags.js" defer></script>
 <script src="js/stats.js" defer></script>
 <script src="js/app.js" defer></script>
 <script src="js/library.js" defer></script>

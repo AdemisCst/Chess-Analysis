@@ -4,6 +4,80 @@
    (leitura do acervo, repertório e chat com a biblioteca).
    ======================================================================== */
 
+/* ===================== ABERTURAS ===================== */
+/**
+ * Renderiza a aba de aberturas. Cada linha combina uma abertura e uma cor,
+ * porque o mesmo nome pode render resultados muito diferentes com brancas e
+ * com pretas. "Precisão" e "Rating" são médias das partidas analisadas e das
+ * que trazem rating no PGN; "—" aparece quando não há dado.
+ */
+function renderOpeningsView() {
+    const identityBox = $('openingsIdentity');
+    const tableBox = $('openingsTable');
+    if (!tableBox) return;
+    const identity = Stats.identifyPlayer(State.games, Settings.playerNameList());
+    State.openingsIdentity = identity;
+
+    if (identityBox) {
+        if (identity.name) {
+            identityBox.className = identity.inferred ? 'notice' : 'notice accent';
+            identityBox.innerHTML = identity.inferred
+                ? `Identifiquei você como <strong>${escapeHtml(identity.name)}</strong>. Se estiver errado, defina seu nome nos Ajustes.`
+                : `Analisando as partidas de <strong>${escapeHtml(identity.name)}</strong>.`;
+            identityBox.classList.remove('hidden');
+        } else {
+            identityBox.className = 'notice';
+            identityBox.innerHTML = 'Ainda não sei qual jogador é você. <button class="link-btn" data-open-settings>Defina seu nome nos Ajustes</button> para separar as aberturas por cor.';
+            identityBox.classList.remove('hidden');
+        }
+    }
+
+    const colorFilter = $('openingsColor') ? $('openingsColor').value : '';
+    const allRows = identity.name ? Openings.compute(State.games, identity) : [];
+    const rows = colorFilter ? allRows.filter(row => row.color === colorFilter) : allRows;
+    const countBox = $('openingsCount');
+    if (countBox) countBox.textContent = rows.length ? `${rows.length} combinação(ões)` : '';
+
+    if (!identity.name) {
+        tableBox.innerHTML = '<p class="chart-empty">Defina seu nome para ver o desempenho por abertura.</p>';
+        return;
+    }
+    if (!rows.length) {
+        tableBox.innerHTML = '<p class="chart-empty">Nenhuma abertura reconhecida ainda. Importe partidas com lances válidos.</p>';
+        return;
+    }
+
+    const body = rows.map(row => {
+        const pct = row.pct == null ? '—' : row.pct.toFixed(1).replace('.', ',') + '%';
+        const accuracy = row.accuracy == null ? '—' : row.accuracy.toFixed(1).replace('.', ',') + '%';
+        const last = row.lastDate
+            ? `<button class="link-btn" data-game="${escapeHtml(row.lastGameId)}" title="Abrir ${escapeHtml(row.lastOpponent)}">${formatDate(row.lastDate)}</button>`
+            : '—';
+        return `<tr>
+            <td><span class="eco-badge">${escapeHtml(row.eco)}</span> ${escapeHtml(row.name)}</td>
+            <td>${row.color === 'w' ? 'Brancas' : 'Pretas'}</td>
+            <td class="num">${row.games}</td>
+            <td class="num">${row.win}</td>
+            <td class="num">${row.draw}</td>
+            <td class="num">${row.loss}</td>
+            <td class="num">${pct}</td>
+            <td class="num">${accuracy}</td>
+            <td class="num">${row.rating == null ? '—' : row.rating}</td>
+            <td class="num">${last}</td>
+        </tr>`;
+    }).join('');
+
+    tableBox.innerHTML = `<table class="mini-table openings-table">
+        <thead><tr>
+            <th>Abertura</th><th>Cor</th><th class="num">Jogos</th>
+            <th class="num">V</th><th class="num">E</th><th class="num">D</th>
+            <th class="num">Aproveit.</th><th class="num">Precisão</th>
+            <th class="num">Rating</th><th class="num">Último jogo</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+    </table>`;
+}
+
 /* ===================== ESTATÍSTICAS ===================== */
 function statCard(label, value, sub) {
     return `<div class="stat-card"><div class="stat-label">${escapeHtml(label)}</div>
@@ -328,13 +402,163 @@ function renderRepertoire() {
     }
 }
 
+/* ---------- leitura local (sem IA) ----------
+   Quando o assistente está desligado, sem cota ou sem internet, o aplicativo
+   ainda entrega uma leitura útil: os mesmos números alimentam um texto
+   determinístico. Isso mantém o site público utilizável sem chave de IA. */
+function pctOrDash(value) {
+    return value == null ? '—' : value.toFixed(1).replace('.', ',') + '%';
+}
+
+function localInsights(brief) {
+    const results = brief.resultados || {};
+    const wins = results.win || 0;
+    const draws = results.draw || 0;
+    const losses = results.loss || 0;
+    const totalDecided = wins + draws + losses;
+    const score = totalDecided ? ((wins + draws / 2) / totalDecided * 100) : null;
+    const openings = brief.aberturas_mais_jogadas || [];
+    const weakest = brief.aberturas_em_alerta || [];
+    const user = brief.precisao && brief.precisao.voce ? brief.precisao.voce : {};
+    const opponent = brief.precisao && brief.precisao.adversarios ? brief.precisao.adversarios : {};
+    const annotations = brief.anotacoes && brief.anotacoes.voce ? brief.anotacoes.voce : {};
+    const phases = brief.precisao && brief.precisao.por_fase ? brief.precisao.por_fase : {};
+    const phaseEntries = ['opening', 'middlegame', 'endgame']
+        .map(key => ({ key, label: key === 'opening' ? 'abertura' : key === 'middlegame' ? 'meio-jogo' : 'final', value: phases[key] && phases[key].user }))
+        .filter(item => item.value != null);
+    phaseEntries.sort((a, b) => a.value - b.value);
+    const bestOpening = openings.slice().sort((a, b) => (b.aproveitamento || 0) - (a.aproveitamento || 0))[0];
+    const mostPlayed = openings[0];
+
+    const lines = [];
+    lines.push('## Diagnóstico');
+    lines.push(`O acervo tem **${brief.total_de_partidas} partida(s)**, das quais **${brief.partidas_analisadas}** foram analisadas pelo Stockfish. `
+        + `O aproveitamento em partidas decididas é de **${pctOrDash(score)}** (${wins}V, ${draws}E, ${losses}D).`);
+    if (user.games) {
+        lines.push(`Sua precisão média é **${pctOrDash(user.accuracy)}** (ACPL ${user.acpl == null ? '—' : user.acpl}), contra **${pctOrDash(opponent.accuracy)}** dos adversários.`);
+    } else {
+        lines.push('Ainda não há partidas analisadas suficientes para comparar precisão. Analyze algumas partidas para enriquecer esta leitura.');
+    }
+
+    lines.push('');
+    lines.push('## Pontos fortes');
+    if (bestOpening && bestOpening.aproveitamento != null) {
+        lines.push(`- **${bestOpening.abertura}** rende **${pctOrDash(bestOpening.aproveitamento)}** em ${bestOpening.jogos} partida(s).`);
+    }
+    if (user.games && user.accuracy != null && user.accuracy >= 70) {
+        lines.push(`- Precisão média de **${pctOrDash(user.accuracy)}**, um patamar consistente.`);
+    }
+    if (annotations.excellent && annotations.excellent > 0) {
+        lines.push(`- **${annotations.excellent}** lance(s) marcados como excelentes (!) mostram boa escolha de candidatos.`);
+    }
+    if (brief.brilhantes_por_fase) {
+        const brilliants = Object.values(brief.brilhantes_por_fase).reduce((sum, item) => sum + (item.total || 0), 0);
+        if (brilliants > 0) lines.push(`- **${brilliants}** lance(s) brilhante(s) (!!) já apareceram no acervo.`);
+    }
+    if (lines[lines.length - 1] === '## Pontos fortes') lines.push('- Ainda não há dados suficientes para destacar um ponto forte. Importe e analise mais partidas.');
+
+    lines.push('');
+    lines.push('## Pontos fracos');
+    if (weakest.length) {
+        weakest.slice(0, 3).forEach(item => {
+            lines.push(`- **${item.abertura}**: ${pctOrDash(item.aproveitamento)} em ${item.jogos} partida(s).`);
+        });
+    }
+    if (annotations.blunder) {
+        lines.push(`- **${annotations.blunder}** capivarada(s) (??) e **${annotations.mistake || 0}** erro(s) (?) no seu lado.`);
+    }
+    if (annotations.missed) {
+        lines.push(`- **${annotations.missed}** chance(s) perdida(s) (×): posições ganhas que deixaram de ser ganhas.`);
+    }
+    if (phaseEntries.length) {
+        const worstPhase = phaseEntries[0];
+        lines.push(`- A fase com pior precisão é o **${worstPhase.label}** (${pctOrDash(worstPhase.value)}).`);
+    }
+    if (lines[lines.length - 1] === '## Pontos fracos') lines.push('- Sem dados suficientes para apontar fraquezas específicas.');
+
+    lines.push('');
+    lines.push('## Plano de Evolução');
+    const focusOpening = weakest[0] ? weakest[0].abertura : (mostPlayed ? mostPlayed.abertura : 'sua abertura principal');
+    lines.push('### Semana 1');
+    lines.push(`- Revise duas partidas perdidas em **${focusOpening}** e anote a primeira posição em que o plano saiu dos eixos.`);
+    lines.push('- Faça 3 exercícios curtos de tática por dia, priorizando lances candidatos antes de capturar.');
+    lines.push('### Semana 2');
+    lines.push(`- Estude uma linha sólida contra **${focusOpening}** e jogue 4 partidas treinando só essa resposta.`);
+    lines.push('- Antes de cada lance, faça a pergunta “o que o adversário ameaça?”.');
+    lines.push('### Semana 3');
+    lines.push(`- Trabalhe a fase de **${phaseEntries.length ? phaseEntries[0].label : 'meio-jogo'}**: 20 minutos de posições práticas por dia.`);
+    lines.push('- Revise suas chances perdidas (×) e escreva o lance que faltou em cada uma.');
+    lines.push('### Semana 4');
+    lines.push('- Jogue 4 partidas com ritmo mais longo e analise todas com o Stockfish.');
+    lines.push('- Compare a precisão e o número de capivaradas com a semana 1.');
+    return lines.join('\n');
+}
+
+function localRepertoire(stats) {
+    const identity = stats.identity || Stats.identifyPlayer(State.games, Settings.playerNameList());
+    const rows = window.Openings ? Openings.compute(State.games, identity) : [];
+    const byColor = color => rows.filter(row => row.color === color);
+    const best = list => list.slice().sort((a, b) => (b.pct || 0) - (a.pct || 0))[0];
+    const worst = list => list.slice().sort((a, b) => (a.pct || 0) - (b.pct || 0))[0];
+    const white = byColor('w');
+    const black = byColor('b');
+    const whiteBest = best(white);
+    const blackBest = best(black);
+    const alerts = rows.filter(row => row.pct != null && row.pct < 50).sort((a, b) => a.pct - b.pct).slice(0, 4);
+    const lines = [];
+
+    lines.push('## Como brancas');
+    if (whiteBest) {
+        lines.push(`Mantenha **${whiteBest.name}** (${whiteBest.eco}) como eixo: ${pctOrDash(whiteBest.pct)} em ${whiteBest.games} partida(s). `
+            + 'Escolha uma segunda linha apenas para variar o ritmo.');
+    } else {
+        lines.push('Ainda não há partidas suas com brancas identificadas. Defina seu nome nos Ajustes.');
+    }
+
+    lines.push('');
+    lines.push('## Como pretas');
+    if (blackBest) {
+        lines.push(`Mantenha **${blackBest.name}** (${blackBest.eco}) como base: ${pctOrDash(blackBest.pct)} em ${blackBest.games} partida(s). `
+            + 'Contra 1.e4 e 1.d4, escolha respostas que você já entende, não a mais popular.');
+    } else {
+        lines.push('Ainda não há partidas suas com pretas identificadas.');
+    }
+
+    lines.push('');
+    lines.push('## Repertório em Alerta');
+    if (alerts.length) {
+        alerts.forEach(row => {
+            lines.push(`- **${row.name}** (${row.eco}, ${row.color === 'w' ? 'brancas' : 'pretas'}): ${pctOrDash(row.pct)} em ${row.games} partida(s). Reduza a frequência ou ajuste a linha.`);
+        });
+    } else {
+        lines.push('Nenhuma abertura com aproveitamento abaixo de 50% apareceu até agora.');
+    }
+
+    lines.push('');
+    lines.push('## Rating Médio dos Adversários');
+    const rating = stats.opponentRating || {};
+    if (rating.games) {
+        lines.push(`A média dos adversários é **${rating.average}** em ${rating.games} partida(s) com rating. `
+            + 'Em ratings mais altos, evite linhas que dependem de erros simples do adversário.');
+    } else {
+        lines.push('Os PGNs não trazem rating dos adversários suficiente para calcular uma média.');
+    }
+
+    lines.push('');
+    lines.push('## Próximos passos');
+    lines.push('- Escolha uma abertura principal para cada cor e monte uma página de ideias, não uma árvore infinita.');
+    lines.push('- Jogue 4 partidas treinando só essas duas aberturas.');
+    lines.push('- Revise com o Stockfish as duas partidas em que a abertura saiu do controle.');
+    return lines.join('\n');
+}
+
 async function generateInsights() {
     if (!State.games.length) {
         toast('Importe partidas antes de gerar a leitura do acervo.', 'warning');
         return;
     }
     if (State.aiBusy) return;
-    if (!(await requireAI())) return;
+    if (!State.ai.online) await checkAI(true);
 
     State.aiBusy = true;
     setAIBusy(true);
@@ -345,20 +569,30 @@ async function generateInsights() {
     State.aiController = controller;
 
     try {
+        if (!State.ai.online) throw new Error('Assistente indisponível.');
         const response = await AI.request(
             AI.insightsMessages(stats.brief),
             { onToken: stream.push, signal: controller.signal }
         );
         stream.finish();
-        const record = { text: response.text, model: AI.config().model, createdAt: Date.now() };
+        const record = { text: response.text, model: AI.config().model, createdAt: Date.now(), source: 'ai' };
         State.insights = record;
         await DB.saveMeta('insights', record);
         renderInsights();
         toast('Leitura do acervo salva.', 'success');
     } catch (error) {
-        const message = error.name === 'AbortError' ? 'Geração cancelada.' : AI.describeError(error);
-        stream.fail(message);
-        toast(message, 'error');
+        if (error.name === 'AbortError') {
+            stream.fail('Geração cancelada.');
+            toast('Geração cancelada.', 'info');
+        } else {
+            // Fallback determinístico: o site continua útil sem IA ou sem cota.
+            const text = localInsights(stats.brief);
+            const record = { text, model: 'leitura local', createdAt: Date.now(), source: 'local' };
+            State.insights = record;
+            await DB.saveMeta('insights', record);
+            renderInsights();
+            toast('Assistente indisponível; gerei uma leitura local a partir dos seus números.', 'warning');
+        }
     } finally {
         State.aiBusy = false;
         State.aiController = null;
@@ -377,7 +611,7 @@ async function generateRepertoire() {
         return;
     }
     if (State.aiBusy) return;
-    if (!(await requireAI())) return;
+    if (!State.ai.online) await checkAI(true);
 
     State.aiBusy = true;
     setAIBusy(true);
@@ -387,20 +621,29 @@ async function generateRepertoire() {
     State.aiController = controller;
 
     try {
+        if (!State.ai.online) throw new Error('Assistente indisponível.');
         const response = await AI.request(
             AI.repertoireMessages(stats.brief),
             { onToken: stream.push, signal: controller.signal }
         );
         stream.finish();
-        const record = { text: response.text, model: AI.config().model, createdAt: Date.now() };
+        const record = { text: response.text, model: AI.config().model, createdAt: Date.now(), source: 'ai' };
         State.repertoire = record;
         await DB.saveMeta('repertoire', record);
         renderRepertoire();
         toast('Repertório sugerido e salvo.', 'success');
     } catch (error) {
-        const message = error.name === 'AbortError' ? 'Geração cancelada.' : AI.describeError(error);
-        stream.fail(message);
-        toast(message, 'error');
+        if (error.name === 'AbortError') {
+            stream.fail('Geração cancelada.');
+            toast('Geração cancelada.', 'info');
+        } else {
+            const text = localRepertoire(stats);
+            const record = { text, model: 'leitura local', createdAt: Date.now(), source: 'local' };
+            State.repertoire = record;
+            await DB.saveMeta('repertoire', record);
+            renderRepertoire();
+            toast('Assistente indisponível; montei um repertório local com os seus resultados.', 'warning');
+        }
     } finally {
         State.aiBusy = false;
         State.aiController = null;
@@ -534,6 +777,14 @@ function bindAnalyticsEvents() {
     $('accuracyChart').addEventListener('click', event => {
         const dot = event.target.closest('[data-game]');
         if (dot) openGame(dot.dataset.game);
+    });
+    $('openingsColor').addEventListener('change', renderOpeningsView);
+    $('openingsTable').addEventListener('click', event => {
+        const button = event.target.closest('[data-game]');
+        if (button) openGame(button.dataset.game);
+    });
+    $('openingsIdentity').addEventListener('click', event => {
+        if (event.target.closest('[data-open-settings]')) setView('settings');
     });
 
     $('aiRefreshStatus').addEventListener('click', async () => {

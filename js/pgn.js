@@ -256,6 +256,7 @@ const PGN = (() => {
                 sourceFile: sourceFile || '',
                 importedAt: Date.now(),
                 tags: [],
+                tagsBySide: { w: [], b: [] },
                 favorite: false,
                 aiTags: [],
                 analysisSummary: null,
@@ -347,4 +348,5 @@ const PGN = (() => {
     };
 })();
 
-window.PGN = PGN;
+if (typeof window !== 'undefined') window.PGN = PGN;
+else self.PGN = PGN;

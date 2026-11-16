@@ -8,16 +8,22 @@ function fillSettingsForm() {
     const settings = Settings.get();
     $('playerNamesInput').value = settings.playerNames || '';
     $('depthSelect').value = String(settings.depth);
+    $('aiModeSelect').value = settings.ai.mode || 'auto';
     $('aiEndpointInput').value = settings.ai.baseUrl;
+    $('aiProxyInput').value = settings.ai.proxyUrl || '';
+    $('aiCodeInput').value = settings.ai.accessCode || '';
     $('aiModelInput').value = settings.ai.model;
     renderModelOptions();
 }
 
 function persistAIFromForm() {
+    const mode = $('aiModeSelect').value || 'auto';
     const baseUrl = $('aiEndpointInput').value.trim() || 'http://localhost:11434';
+    const proxyUrl = $('aiProxyInput').value.trim().replace(/\/+$/, '');
+    const accessCode = $('aiCodeInput').value.trim();
     const model = $('aiModelInput').value.trim() || 'qwen2.5:3b';
-    AI.setConfig({ baseUrl, model });
-    return { baseUrl, model };
+    AI.setConfig({ mode, baseUrl, proxyUrl, accessCode, model });
+    return { mode, baseUrl, proxyUrl, accessCode, model };
 }
 
 /* ===================== BACKUP ===================== */
@@ -44,6 +50,8 @@ async function restoreBackup(file) {
             await DB.bulkPut(name, stores[name]);
         }
         State.aiCacheLoaded = false;
+        // A seleção pode apontar para partidas que vieram de outro acervo.
+        State.selected.clear();
         await reloadGames();
         // O backup pode trazer análises da versão antiga; enriquece de novo.
         await migrateAnalysisData(true);
@@ -56,7 +64,12 @@ async function restoreBackup(file) {
 }
 
 /* ===================== ANÁLISE EM LOTE ===================== */
-async function analyzeAll() {
+/**
+ * Analisa em lote. Sem argumento, percorre todo o acervo; com uma lista de
+ * partidas (seleção múltipla), analisa apenas aquelas que ainda não atingiram
+ * a profundidade configurada.
+ */
+async function analyzeAll(onlyGames) {
     if (!Engine.supported()) {
         toast('A análise em lote precisa que você abra o projeto com iniciar.bat.', 'warning');
         return;
@@ -71,7 +84,8 @@ async function analyzeAll() {
     }
 
     const depth = Settings.get().depth;
-    const pending = State.games.filter(game => !game.analyzedDepth || game.analyzedDepth < depth);
+    const scope = Array.isArray(onlyGames) && onlyGames.length ? onlyGames : State.games;
+    const pending = scope.filter(game => !game.analyzedDepth || game.analyzedDepth < depth);
     if (!pending.length) {
         toast(`Todas as partidas já foram analisadas na profundidade ${depth}.`, 'success');
         return;
@@ -119,6 +133,7 @@ async function analyzeAll() {
                 await DB.saveAnalysis(result);
                 game.analysisSummary = result.summary;
                 game.analyzedDepth = Math.max(game.analyzedDepth || 0, depth);
+                if (window.Tags) Tags.apply(game, result, data.moves);
                 await DB.put('games', game);
                 done++;
             } catch (error) {
@@ -224,7 +239,9 @@ function bindSettingsEvents() {
     });
 
     $('testAiBtn').addEventListener('click', async () => {
-        const { baseUrl, model } = persistAIFromForm();
+        const { model } = persistAIFromForm();
+        const cfg = AI.config();
+        const where = AI.useProxy() ? (cfg.proxyUrl || location.origin) : cfg.baseUrl;
         const result = $('aiTestResult');
         result.className = 'test-result';
         result.textContent = 'Testando conexão…';
@@ -238,8 +255,8 @@ function bindSettingsEvents() {
         const hasModel = models.includes(model);
         result.className = 'test-result ok';
         result.textContent = hasModel
-            ? `Conectado em ${baseUrl}. Modelo ${model} disponível.`
-            : `Conectado em ${baseUrl}, mas o modelo ${model} não foi encontrado. Rode: ollama pull ${model}`;
+            ? `Conectado em ${where}. Modelo ${model} disponível.`
+            : `Conectado em ${where}. O modelo ${model} não aparece na lista; se as respostas falharem, ajuste o modelo.`;
         renderAIStatus();
     });
 

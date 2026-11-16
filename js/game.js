@@ -41,6 +41,12 @@ async function openGame(id) {
             const merged = new Set([].concat(meta.aiTags || [], tagRecord.tags));
             meta.aiTags = Array.from(merged);
         }
+        // Tags por lado dependem da análise e das aberturas: recalcula ao abrir.
+        if (window.Tags && Tags.apply(meta, State.analysis, data ? data.moves : null)) {
+            DB.put('games', meta).catch(error => {
+                console.warn('Não foi possível salvar as tags por lado:', error);
+            });
+        }
     } catch (error) {
         console.warn('Falha ao carregar dados da partida:', error);
     }
@@ -99,9 +105,35 @@ function renderGameHeader() {
         .join('');
 }
 
+/** Chips das cinco tags fixas, separadas pelo lado a que pertencem. */
+function renderSideTags() {
+    const game = State.current;
+    const box = $('gameSideTags');
+    if (!game || !box || !window.Tags) return;
+    Tags.ensure(game);
+    const color = userColorOf(game);
+    const groups = color
+        ? [
+            { label: `A favor (${color === 'w' ? 'brancas' : 'pretas'})`, color },
+            { label: `Contra (${color === 'w' ? 'pretas' : 'brancas'})`, color: color === 'w' ? 'b' : 'w' },
+        ]
+        : [
+            { label: 'Brancas', color: 'w' },
+            { label: 'Pretas', color: 'b' },
+        ];
+    box.innerHTML = groups.map(group => {
+        const list = Tags.forSide(game, group.color);
+        const chips = list.length
+            ? list.map(tag => `<span class="chip side-tag" title="${escapeHtml(Tags.DESCRIPTIONS[tag] || '')}">${escapeHtml(tag)}</span>`).join('')
+            : '<span class="muted small">Nenhuma.</span>';
+        return `<div class="side-tag-group"><span class="side-tag-label">${escapeHtml(group.label)}</span><div class="chips">${chips}</div></div>`;
+    }).join('');
+}
+
 function renderTags() {
     const game = State.current;
     if (!game) return;
+    renderSideTags();
     $('gameTags').innerHTML = (game.tags || []).length
         ? game.tags.map(tag => `<span class="chip">${escapeHtml(tag)} <button data-remove-tag="${escapeHtml(tag)}" title="Remover">✕</button></span>`).join('')
         : '<span class="muted small">Nenhuma tag.</span>';
@@ -398,10 +430,12 @@ async function analyzeCurrent() {
         await DB.saveAnalysis(result);
         game.analysisSummary = result.summary;
         game.analyzedDepth = Math.max(game.analyzedDepth || 0, depth);
+        if (window.Tags) Tags.apply(game, result, State.data ? State.data.moves : null);
         await DB.put('games', game);
         if (State.current && State.current.id === game.id) {
             State.analysis = result;
             renderGameHeader();
+            renderTags();
             renderAnalysisTab();
             renderMoveList();
             renderPosition();
@@ -551,7 +585,12 @@ async function removeAITag(tag) {
 
 /* ===================== ABAS E RENDER GERAL ===================== */
 function switchGameTab(tab) {
-    $$('.tab-sm').forEach(button => button.classList.toggle('active', button.dataset.gameTab === tab));
+    $$('.tab-sm').forEach(button => {
+        const active = button.dataset.gameTab === tab;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', active ? 'true' : 'false');
+        button.tabIndex = active ? 0 : -1;
+    });
     $('gameTabMoves').classList.toggle('hidden', tab !== 'moves');
     $('gameTabAnalysis').classList.toggle('hidden', tab !== 'analysis');
     $('gameTabAi').classList.toggle('hidden', tab !== 'ai');
@@ -570,6 +609,72 @@ function renderGame() {
 }
 
 /* ===================== EVENTOS ===================== */
+/**
+ * Abre uma versão para impressão do relatório da partida. O navegador oferece
+ * "Salvar como PDF" na janela de impressão; nada é enviado a servidores.
+ */
+function printGameReport() {
+    const game = State.current;
+    if (!game) return;
+    const analysis = State.analysis;
+    const summary = State.currentSummary && State.currentSummary.text;
+    const counts = analysis && analysis.counts ? analysis.counts : { w: {}, b: {} };
+    const rows = [
+        ['Evento', game.event || '—'],
+        ['Local', game.site || '—'],
+        ['Data', formatDate(game.dateISO, game.headers && game.headers.Date)],
+        ['Abertura', openingLabel(game)],
+        ['Controle', game.timeControl || '—'],
+        ['Resultado', game.result || '*'],
+        ['Elos', [game.whiteElo, game.blackElo].filter(Boolean).join(' / ') || '—'],
+    ];
+    const annotationRows = analysis ? Engine.ANNOTATION_ORDER.map(key => {
+        const info = Engine.annotationInfo(key);
+        return `<tr><td>${info.symbol} ${info.label}</td><td>${counts.w[key] || 0}</td><td>${counts.b[key] || 0}</td></tr>`;
+    }).join('') : '';
+    const keyRows = analysis && analysis.keyMoments ? analysis.keyMoments.map(moment => {
+        const info = Engine.annotationInfo(moment.annotation || 'mistake');
+        return `<tr><td>${Math.ceil(moment.ply / 2)}${moment.color === 'w' ? '.' : '...'}</td>
+            <td>${escapeHtml(moment.san)}</td><td>${info.symbol} ${info.label}</td>
+            <td>${escapeHtml(moment.bestSan || '—')}</td></tr>`;
+    }).join('') : '';
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+        <title>Relatório — ${escapeHtml(game.white)} × ${escapeHtml(game.black)}</title>
+        <style>
+            body{font-family:Segoe UI,Arial,sans-serif;color:#1b2432;max-width:820px;margin:28px auto;padding:0 20px;line-height:1.5}
+            h1{font-size:22px;margin:0 0 4px} h2{font-size:15px;margin:22px 0 8px;border-bottom:1px solid #d8dee8;padding-bottom:4px}
+            table{width:100%;border-collapse:collapse;font-size:13px} td,th{border-bottom:1px solid #e4e9f1;padding:5px 6px;text-align:left}
+            th{color:#667085;font-size:11px;text-transform:uppercase} .muted{color:#667085} .sym{font-weight:700}
+            .cards{display:flex;gap:12px;margin:10px 0} .card{flex:1;border:1px solid #d8dee8;border-radius:8px;padding:10px}
+            .card strong{font-size:20px;display:block} ul{margin:4px 0 10px 20px} @media print{body{margin:0}}
+        </style></head><body>
+        <h1>${escapeHtml(game.white)} × ${escapeHtml(game.black)}</h1>
+        <p class="muted">${escapeHtml(formatDate(game.dateISO, game.headers && game.headers.Date))} · ${escapeHtml(openingLabel(game))} · ${escapeHtml(game.result || '*')}</p>
+        <h2>Ficha da partida</h2>
+        <table>${rows.map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(value)}</td></tr>`).join('')}</table>
+        ${analysis ? `<h2>Precisão e anotações</h2>
+            <div class="cards">
+                <div class="card"><span class="muted">Brancas</span><strong>${analysis.accuracy.w == null ? '—' : analysis.accuracy.w + '%'}</strong><span class="muted">ACPL ${analysis.acpl.w == null ? '—' : analysis.acpl.w}</span></div>
+                <div class="card"><span class="muted">Pretas</span><strong>${analysis.accuracy.b == null ? '—' : analysis.accuracy.b + '%'}</strong><span class="muted">ACPL ${analysis.acpl.b == null ? '—' : analysis.acpl.b}</span></div>
+            </div>
+            <table><thead><tr><th>Anotação</th><th>Brancas</th><th>Pretas</th></tr></thead><tbody>${annotationRows}</tbody></table>
+            ${keyRows ? `<h2>Momentos-chave</h2><table><thead><tr><th>Lance</th><th>Jogada</th><th>Anotação</th><th>Melhor</th></tr></thead><tbody>${keyRows}</tbody></table>` : ''}`
+        : '<p class="muted">Partida ainda não analisada pelo Stockfish.</p>'}
+        ${summary ? `<h2>Resumo do assistente</h2>${renderMarkdown(summary)}` : ''}
+        <hr><p class="muted">Gerado pelo Acervo 64 em ${new Date().toLocaleString('pt-BR')}.</p>
+        </body></html>`;
+    const win = window.open('', '_blank');
+    if (!win) {
+        toast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'warning');
+        return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { try { win.print(); } catch (error) { /* usuário pode imprimir manualmente */ } }, 350);
+}
+
 function bindGameEvents() {
     $('backToLibrary').addEventListener('click', () => setView('library'));
     $('firstBtn').addEventListener('click', () => setPly(0));
@@ -597,6 +702,7 @@ function bindGameEvents() {
     $('deleteGameBtn').addEventListener('click', () => {
         if (State.current) deleteGame(State.current.id);
     });
+    $('gamePdfBtn').addEventListener('click', printGameReport);
     $('copyPgnBtn').addEventListener('click', async () => {
         if (!State.data) return;
         try {
@@ -651,4 +757,25 @@ function bindGameEvents() {
     $$('.tab-sm').forEach(button => {
         button.addEventListener('click', () => switchGameTab(button.dataset.gameTab));
     });
+
+    // Navegação por teclado entre as abas, seguindo o padrão ARIA de tablist:
+    // setas movem o foco e ativam a aba; Home/End vão para as pontas.
+    const tabList = document.querySelector('.tabs-sm');
+    if (tabList) {
+        tabList.addEventListener('keydown', event => {
+            const tabs = $$('.tab-sm');
+            const current = tabs.findIndex(tab => tab.dataset.gameTab === (event.target.dataset && event.target.dataset.gameTab));
+            if (current < 0) return;
+            let next = current;
+            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % tabs.length;
+            else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (current - 1 + tabs.length) % tabs.length;
+            else if (event.key === 'Home') next = 0;
+            else if (event.key === 'End') next = tabs.length - 1;
+            else return;
+            event.preventDefault();
+            const target = tabs[next];
+            switchGameTab(target.dataset.gameTab);
+            target.focus();
+        });
+    }
 }

@@ -27,6 +27,7 @@ const State = {
     chatHistory: [],
     chatSources: [],
     importReport: null,
+    selected: new Set(),
     filters: { tokens: [], color: '', sort: 'date_desc' },
 };
 
@@ -120,23 +121,44 @@ function toast(message, type) {
 }
 
 /* ===================== MODAL ===================== */
-let modalState = { closable: true, onClose: null };
+let modalState = { closable: true, onClose: null, previousFocus: null };
+
+/** Elementos focáveis visíveis dentro do modal, na ordem do DOM. */
+function modalFocusables() {
+    return $$('#modal button, #modal input, #modal select, #modal textarea, #modal a[href]')
+        .filter(element => !element.disabled && element.offsetParent !== null);
+}
 
 function openModal(options) {
     const opts = options || {};
+    const wasHidden = $('modal').classList.contains('hidden');
     $('modalTitle').textContent = opts.title || '';
     $('modalBody').innerHTML = opts.body || '';
     $('modalFooter').innerHTML = opts.footer || '';
     $('modalClose').style.visibility = opts.closable === false ? 'hidden' : 'visible';
-    modalState = { closable: opts.closable !== false, onClose: opts.onClose || null };
+    modalState = {
+        closable: opts.closable !== false,
+        onClose: opts.onClose || null,
+        previousFocus: wasHidden ? document.activeElement : modalState.previousFocus,
+    };
     $('modal').classList.remove('hidden');
+    // Leva o foco para o primeiro controle útil, sem roubar o foco de quem
+    // abriu um teclado virtual em um campo específico.
+    setTimeout(() => {
+        const target = $('modalBody').querySelector('input, select, textarea, button')
+            || $('modalFooter').querySelector('button')
+            || $('modalClose');
+        if (target) target.focus();
+    }, 30);
 }
 
 function closeModal() {
     if ($('modal').classList.contains('hidden')) return;
     $('modal').classList.add('hidden');
     const callback = modalState.onClose;
-    modalState = { closable: true, onClose: null };
+    const previous = modalState.previousFocus;
+    modalState = { closable: true, onClose: null, previousFocus: null };
+    if (previous && typeof previous.focus === 'function') previous.focus();
     if (callback) callback();
 }
 
@@ -255,6 +277,7 @@ function setView(name) {
         $('noGame').classList.toggle('hidden', !!State.current);
         $('gameContent').classList.toggle('hidden', !State.current);
     }
+    if (name === 'openings') renderOpeningsView();
     if (name === 'stats') renderStatsView();
     if (name === 'ai') { renderAIStatus(); loadAICache(); }
     if (name === 'settings') fillSettingsForm();
@@ -268,6 +291,12 @@ function setAIStatus(online, text) {
     $('aiStatusText').textContent = text;
 }
 
+/** Endereço efetivamente usado: Ollama local ou proxy do site. */
+function aiEndpointLabel() {
+    const cfg = AI.config();
+    return AI.useProxy() ? (cfg.proxyUrl || location.origin) : cfg.baseUrl;
+}
+
 async function checkAI(quiet) {
     setAIStatus(false, 'Assistente: verificando…');
     const result = await AI.check();
@@ -275,7 +304,7 @@ async function checkAI(quiet) {
     if (result.online) {
         setAIStatus(true, 'Assistente pronto');
         const cfg = AI.config();
-        $('aiStatusChip').title = `Assistente conectado em ${cfg.baseUrl} · modelo ${cfg.model}`;
+        $('aiStatusChip').title = `Assistente conectado em ${aiEndpointLabel()} · modelo ${cfg.model}`;
         renderModelOptions();
     } else {
         setAIStatus(false, 'Assistente offline');
@@ -300,12 +329,17 @@ function renderAIStatus() {
     const cfg = AI.config();
     const models = (State.ai.models || []).map(model => model.name);
     const online = State.ai.online;
+    const viaProxy = AI.useProxy();
+    const guidance = viaProxy
+        ? `Confira o código de acesso na configuração avançada e se o assistente do site está configurado. O administrador vê os detalhes em <code>.env.example</code>.`
+        : `Abra o Ollama, rode <code>ollama pull ${escapeHtml(cfg.model)}</code> e clique em “Testar assistente”. Se o navegador bloquear, inicie o Ollama com <code>OLLAMA_ORIGINS=*</code>.`;
     panel.innerHTML = `
         <div class="row"><span>Status</span><strong style="color:${online ? 'var(--success)' : 'var(--danger)'}">${online ? 'Conectado' : 'Desconectado'}</strong></div>
-        <div class="row"><span>Endereço</span><code>${escapeHtml(cfg.baseUrl)}</code></div>
+        <div class="row"><span>Onde roda</span><strong>${viaProxy ? 'Site publicado' : 'Neste computador'}</strong></div>
+        <div class="row"><span>Endereço</span><code>${escapeHtml(aiEndpointLabel())}</code></div>
         <div class="row"><span>Modelo em uso</span><code>${escapeHtml(cfg.model)}</code></div>
         <div class="row"><span>Modelos instalados</span><span>${models.length ? models.map(name => `<code>${escapeHtml(name)}</code>`).join(' ') : '—'}</span></div>
-        ${online ? '' : `<div class="row"><span>Como resolver</span><span class="small muted">Abra o Ollama, rode <code>ollama pull ${escapeHtml(cfg.model)}</code> e clique em “Verificar conexão”. Se o navegador bloquear, inicie o Ollama com <code>OLLAMA_ORIGINS=*</code>.</span></div>`}
+        ${online ? '' : `<div class="row"><span>Como resolver</span><span class="small muted">${guidance}</span></div>`}
     `;
     if (!online && State.ai.error) {
         panel.innerHTML += `<div class="row"><span>Detalhe</span><span class="small muted">${escapeHtml(State.ai.error)}</span></div>`;
@@ -390,9 +424,9 @@ function renderRailCount() {
 async function migrateAnalysisData(force) {
     if (!window.Engine || typeof Engine.enrichAnalysis !== 'function') return { updated: 0, skipped: true };
     const marker = await DB.getMeta('analysisMigration').catch(() => null);
-    if (!force && marker && Number(marker.value) >= 2) return { updated: 0, skipped: true };
+    if (!force && marker && Number(marker.value) >= 3) return { updated: 0, skipped: true };
 
-    const candidates = State.games.filter(game => game.analysisSummary);
+    const candidates = State.games;
     let updated = 0;
 
     for (const game of candidates) {
@@ -401,11 +435,16 @@ async function migrateAnalysisData(force) {
                 DB.getAnalysis(game.id),
                 DB.get('data', game.id),
             ]);
-            if (!analysis || !data) continue;
-            const enriched = Engine.enrichAnalysis(analysis, data);
-            if (enriched === analysis) continue;
-            await DB.saveAnalysis(enriched);
-            game.analysisSummary = enriched.summary;
+            if (!data) continue;
+            const enriched = analysis ? Engine.enrichAnalysis(analysis, data) : null;
+            const analysisChanged = !!enriched && enriched !== analysis;
+            if (window.Openings && data.moves) Openings.enrichGame(game);
+            const tagsChanged = window.Tags ? Tags.apply(game, enriched, data.moves) : false;
+            if (!analysisChanged && !tagsChanged) continue;
+            if (analysisChanged) {
+                await DB.saveAnalysis(enriched);
+                game.analysisSummary = enriched.summary;
+            }
             await DB.put('games', game);
             updated++;
         } catch (error) {
@@ -413,7 +452,7 @@ async function migrateAnalysisData(force) {
         }
     }
 
-    await DB.saveMeta('analysisMigration', 2).catch(() => {});
+    await DB.saveMeta('analysisMigration', 3).catch(() => {});
     if (updated) {
         renderLibrary();
         if ($('view-stats').classList.contains('active')) renderStatsView();
@@ -435,8 +474,26 @@ function bindGlobalEvents() {
         if (event.target === $('modal') && modalState.closable) closeModal();
     });
     document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && !$('modal').classList.contains('hidden') && modalState.closable) {
+        if (!event.key) return;
+        const modalOpen = !$('modal').classList.contains('hidden');
+        if (event.key === 'Escape' && modalOpen && modalState.closable) {
+            event.preventDefault();
             closeModal();
+            return;
+        }
+        if (event.key === 'Tab' && modalOpen) {
+            const focusables = modalFocusables();
+            if (!focusables.length) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+            return;
         }
         if (State.view !== 'game' || !State.current) return;
         const tag = (event.target.tagName || '').toLowerCase();
@@ -466,6 +523,7 @@ async function init() {
 
     try {
         await DB.open();
+        await Openings.load().catch(() => []);
         await reloadGames();
         // Reaproveita análises antigas antes de desenhar estatísticas.
         await migrateAnalysisData(false);

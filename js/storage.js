@@ -176,7 +176,11 @@ const Settings = (() => {
         depth: 12,
         pageSize: 50,
         ai: {
+            // auto: Ollama no PC, proxy quando o site está publicado.
+            mode: 'auto',
             baseUrl: 'http://localhost:11434',
+            proxyUrl: '',
+            accessCode: '',
             model: 'qwen2.5:3b',
             temperature: 0.3,
             numCtx: 4096,

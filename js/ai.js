@@ -24,14 +24,42 @@ Regras obrigatórias:
 - Se faltar informação, diga que não há dados suficientes.
 - Seja conciso, evite clichês e não repita a lista completa de lances.`;
 
+    function isLocalHost() {
+        return ['localhost', '127.0.0.1', '::1', ''].includes(location.hostname) || location.protocol === 'file:';
+    }
+
     function config() {
         const stored = Settings.get().ai || {};
         return {
+            mode: stored.mode || 'auto',
             baseUrl: String(stored.baseUrl || 'http://localhost:11434').replace(/\/+$/, ''),
+            proxyUrl: String(stored.proxyUrl || '').replace(/\/+$/, ''),
+            accessCode: String(stored.accessCode || '').trim(),
             model: stored.model || 'qwen2.5:3b',
             temperature: Number.isFinite(Number(stored.temperature)) ? Number(stored.temperature) : 0.3,
             numCtx: Number(stored.numCtx) || 4096,
         };
+    }
+
+    /**
+     * Decide se a chamada vai para o Ollama local ou para o proxy do site.
+     * "auto" usa o Ollama quando a página está no próprio PC e o proxy quando
+     * está publicada. Quem quiser forçar um dos dois escolhe nos Ajustes.
+     */
+    function useProxy() {
+        const cfg = config();
+        if (cfg.mode === 'proxy') return true;
+        if (cfg.mode === 'local') return false;
+        return !isLocalHost();
+    }
+
+    function proxyBase() {
+        return config().proxyUrl;
+    }
+
+    function authHeaders() {
+        const code = config().accessCode;
+        return code ? { 'X-Acervo-Code': code } : {};
     }
 
     function setConfig(patch) {
@@ -43,7 +71,8 @@ Regras obrigatórias:
         const message = error.message || String(error);
         if (error.name === 'AbortError') return 'Operação cancelada.';
         if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
-            return `Não consegui falar com o assistente em ${config().baseUrl}. Verifique se ele está disponível e se esta origem está autorizada.`;
+            const where = useProxy() ? (proxyBase() || location.origin) : config().baseUrl;
+            return `Não consegui falar com o assistente em ${where}. Verifique a conexão e o código de acesso.`;
         }
         return message;
     }
@@ -68,8 +97,15 @@ Regras obrigatórias:
     async function check() {
         const timeout = withTimeout(8000);
         try {
-            const response = await fetch(config().baseUrl + '/api/tags', { signal: timeout.signal });
-            if (!response.ok) throw new Error(`O Ollama respondeu HTTP ${response.status}.`);
+            const url = useProxy()
+                ? `${proxyBase()}/api/tags`
+                : config().baseUrl + '/api/tags';
+            const response = await fetch(url, { signal: timeout.signal, headers: authHeaders() });
+            if (!response.ok) {
+                if (response.status === 401) throw new Error('Código de acesso inválido ou ausente.');
+                if (response.status === 503) throw new Error('O assistente deste site ainda não foi configurado.');
+                throw new Error(`O assistente respondeu HTTP ${response.status}.`);
+            }
             const data = await response.json();
             const models = (data.models || []).map(model => ({
                 name: model.name,
@@ -109,11 +145,12 @@ Regras obrigatórias:
         if (opts.format) body.format = opts.format;
 
         const timeout = withTimeout(opts.timeoutMs || 180000, opts.signal);
+        const url = useProxy() ? `${proxyBase()}/api/chat` : cfg.baseUrl + '/api/chat';
         let response;
         try {
-            response = await fetch(cfg.baseUrl + '/api/chat', {
+            response = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...authHeaders() },
                 body: JSON.stringify(body),
                 signal: timeout.signal,
             });
@@ -127,8 +164,10 @@ Regras obrigatórias:
             let detail = `HTTP ${response.status}`;
             try {
                 const payload = await response.json();
-                if (payload.error) detail = payload.error;
+                if (payload.error) detail = typeof payload.error === 'string' ? payload.error : (payload.error.message || detail);
             } catch (e) { /* resposta sem JSON */ }
+            if (response.status === 401) detail = 'Código de acesso inválido ou ausente. Confira a configuração avançada.';
+            if (response.status === 429) detail = detail || 'Limite diário do assistente atingido.';
             throw new Error(detail);
         }
 
@@ -437,6 +476,7 @@ ${docs.length ? docs.join('\n') : 'Nenhum trecho recuperado.'}`,
         TAG_VOCABULARY,
         config,
         setConfig,
+        useProxy,
         describeError,
         check,
         request,
