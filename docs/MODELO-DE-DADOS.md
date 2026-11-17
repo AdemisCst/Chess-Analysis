@@ -1,9 +1,10 @@
 # Modelo de dados — Chess-Analysis
 
-**Versão:** 1.0 — Fase 1  
-**Atualizado em:** 16/11/2026  
+**Versão:** 1.1 — Fase 2 (contrato de WDL)  
+**Atualizado em:** 17/11/2026  
 **Estado:** contratos documentados; persistência de `PlayerIdentity` fica para a
-Fase 5.
+Fase 5. O campo `wdl` e a `version: 3` da análise estão **documentados e ainda
+não implementados**.
 
 Este documento descreve as estruturas **realmente usadas** hoje e os contratos
 previstos. Onde a estrutura ainda não existe no código, o texto indica isso.
@@ -72,9 +73,10 @@ Chave: `key = gameId@depth`; índice `gameId`.
 |---|---|---|
 | `gameId` | string | |
 | `depth` | number | profundidade solicitada |
-| `version` | number | versão do algoritmo de classificação (`2` hoje) |
-| `engine` | string | rótulo do motor (a versão real será validada na Fase 2) |
-| `positions` | array | `{cp, mate, depth, best, pv}` por posição |
+| `version` | number | `2` nas análises atuais; `3` quando houver WDL (§2.3.1) |
+| `engine` | string | rótulo de exibição; o motor atual grava “Stockfish 10 (WASM)” |
+| `engineId` | string \| null | opcional; linha `id name` devolvida pelo UCI. Ausente nas análises antigas |
+| `positions` | array | `{cp, mate, depth, best, pv, wdl?}` por posição |
 | `moves` | array | classificação por meia-jogada |
 | `winPctWhite` | number[] | 0–100 |
 | `accuracy` | `{w,b}` | 0–100 |
@@ -89,6 +91,57 @@ Chave: `key = gameId@depth`; índice `gameId`.
 Cada item de `moves` contém: `loss` (pontos percentuais), `cpLoss`,
 `annotation`, `symbol`, `label`, `bestSan`, `before`, `after`, `phase`,
 `sacrifice`, `isBest`, `missed`, `brilliant`.
+
+#### 2.3.1. Item de `positions` e o campo aditivo `wdl` (versão 3)
+
+| Campo | Tipo | Obrigatório | Regra |
+|---|---|---|---|
+| `cp` | number \| null | sim | centipeões do ponto de vista de quem joga; `null` quando a linha é de mate |
+| `mate` | number \| null | sim | em lances para mate; positivo = quem joga dá mate |
+| `depth` | number | sim | profundidade da última linha aceita |
+| `best` | string \| null | sim | lance UCI (`e2e4`, `e7e8q`) ou `null` |
+| `pv` | string[] | sim | linha principal em UCI; pode ser vazia |
+| `wdl` | `{w,d,l}` \| ausente | **não** | probabilidades em **por-mil** (0–1000), do ponto de vista de quem joga naquela posição |
+
+Regras do `wdl`:
+
+1. Só existe quando o motor responde com `UCI_ShowWDL` ativo e a linha `info`
+   trouxer o trio `wdl <w> <d> <l>`.
+2. São inteiros; a soma é 1000 (`l = 1000 − w − d`).
+3. A perspectiva é a **de quem joga** — a mesma de `cp` e `mate`. Não inverter
+   duas vezes ao converter para brancas.
+4. Nunca é inventado: análise antiga ou linha sem WDL fica **sem** o campo.
+   `0 0 0` não é valor válido.
+5. É aditivo: `cp`, `mate`, `best` e `pv` continuam obrigatórios e com o mesmo
+   significado. Nada é removido nem renomeado.
+
+Conversão canônica para a matriz já existente:
+
+```text
+esMover     = (w + d / 2) / 10           // 0–100, em %
+whiteWinPct = índice par  ? esMover : 100 − esMover
+```
+
+`winPctWhite` continua sendo o array canônico consumido pelo gráfico e pelo
+relatório. A `version: 3` indica que ele foi derivado do WDL; a `version: 2`
+indica que veio da curva logística sobre `cp`.
+
+#### 2.3.2. Compatibilidade entre versões de análise
+
+| `version` | Conteúdo | Leitura |
+|---|---|---|
+| `1` | `positions` + `winPctWhite`, sem `moves` anotados | Reconstruída por `Engine.enrichAnalysis` |
+| `2` | Acrescenta `moves`, `accuracy`, `acpl`, `counts`, fases e momentos; win% pela curva logística | Estado atual |
+| `3` | `version: 2` + `positions[i].wdl` e `engineId` | **Previsto**; ausência de `wdl` cai na curva da v2 |
+
+Regras de migração:
+
+- A ausência de `wdl` **não** é erro: significa “usar a curva logística”.
+- Não regravar análises antigas apenas para preencher `wdl`.
+- `enrichAnalysis` não pode inventar `wdl` nem elevar `version` sem executar o
+  motor com WDL.
+- Uma análise v3 pode ser lida por código que ignore `wdl` sem perder dados.
+
 
 ### 2.4. Conteúdo de IA (`ai`)
 
@@ -148,7 +201,9 @@ Ordem visual oficial da Fase 1 (7 categorias):
 A ordem **não** é uma escala linear. O destino da Fase 2 tem 10 categorias
 (Brilhante, Grande Lance, Melhor, Excelente, Bom, Livro, Imprecisão, Erro,
 Chance Perdida, Erro Grosseiro), com critérios versionados, WDL e Expected
-Score. Nada disso está implementado ainda.
+Score. Nada disso está implementado ainda: a atualização do motor (Tarefa 1 da
+Fase 2) habilitará o **WDL**, mas os critérios abaixo continuam em pontos
+percentuais até a Tarefa 2.
 
 Critérios atuais (em pontos percentuais de vitória):
 
@@ -164,6 +219,29 @@ Critérios atuais (em pontos percentuais de vitória):
 
 `Loss = ExpectedScoreBefore − ExpectedScoreAfter`, sempre pela perspectiva de
 quem jogou. O ACPL usa centipeões e é apenas comparativo.
+
+### 3.1. Fonte do Expected Score (contrato da versão 3)
+
+**Estado:** documentado; não implementado. O código atual usa somente a curva
+logística sobre `cp`.
+
+| Fonte | Cálculo | Quando usar |
+|---|---|---|
+| `wdl` (v3) | `(w + d/2) / 10` → 0–100 | quando `positions[i].wdl` existe e é válido |
+| curva sobre `cp` (v2) | `50 + 50*(2/(1+exp(-0.00368208*cp))-1)` | quando não há `wdl` |
+
+Regras:
+
+1. A fonte é escolhida **por análise**, não por posição: a `version: 3` usa WDL
+   em todas as posições avaliadas; se alguma linha não trouxer WDL, a análise
+   permanece na versão 2 e usa a curva.
+2. `mate` continua tendo prioridade: 100% para quem dá mate, 0% para quem
+   apanha, independentemente do `wdl`.
+3. A perda continua em pontos percentuais e o ACPL continua em centipeões.
+4. Se o `wdl` for inconsistente (fora de 0–1000 ou soma diferente de 1000),
+   descartar o campo e usar a curva — registrando isso no item, sem inventar
+   números.
+
 
 ---
 
@@ -257,7 +335,9 @@ Contrato previsto, ainda não implementado:
 ```
 
 Regras: gravar após unidades verificáveis; nunca marcar tarefa interrompida
-como concluída; retomar apenas checkpoints consistentes.
+como concluída; retomar apenas checkpoints consistentes. O campo
+`config.engineVersion` deverá receber o `engineId` real devolvido pelo handshake
+UCI, não um rótulo fixo.
 
 ---
 

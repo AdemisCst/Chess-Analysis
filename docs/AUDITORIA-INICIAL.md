@@ -16,6 +16,12 @@
 > relatório/PDF e testes estão registradas em
 > [`docs/TESTES-FASE-1.md`](TESTES-FASE-1.md) e
 > [`docs/ARQUITETURA-INTEGRACAO.md`](ARQUITETURA-INTEGRACAO.md).
+>
+> **Atualização da Fase 2 (17/11/2026):** a versão do motor foi confirmada por
+> leitura dos arquivos vendorizados e o diagnóstico completo está na
+> [§12](#12-fase-2--auditoria-do-motor-17112026). Isso resolve a pendência
+> “Confirmar versão do Stockfish” da §10; as demais pendências continuam como
+> estavam.
 
 ---
 
@@ -78,8 +84,8 @@ Chess/
 | Dependência | Versão/identificação | Estado |
 |---|---|---|
 | chess.js | 0.10.3 (informado no LEIA-ME; o arquivo vendorizado não expõe versão no cabeçalho) | **Verificado no uso**; versão exata não confirmada no arquivo |
-| Stockfish.js | distribuição `nmrugg/stockfish.js`; `engine.js` rotula “Stockfish 10 (WASM)” | **Versão real não confirmada**; precisa de validação na Fase 2 |
-| Stockfish WASM | `vendor/stockfish/stockfish.wasm` | **Verificado** (arquivo presente) |
+| Stockfish.js | distribuição `nmrugg/stockfish.js`; build de **02/08/2019** (Stockfish 10), conforme §12 | **Verificado na Fase 2**; o rótulo do código estava correto |
+| Stockfish WASM | `vendor/stockfish/stockfish.wasm` (366.900 bytes) + `stockfish.asm.js` (957.535 bytes, não usado) | **Verificado na Fase 2** (tamanhos e conteúdo) |
 | Base ECO/Lichess | `vendor/eco/openings.json` (~522 KB) | **Verificado** |
 | Peças cburnett | SVGs em `vendor/pieces` | **Verificado** |
 | Node.js | servidor local e scripts de verificação | **Verificado** (ambiente de desenvolvimento) |
@@ -182,6 +188,9 @@ Não se afirma que o backup real foi validado.
 ---
 
 ## 5. Stockfish
+
+> **Fase 2 (17/11/2026):** os itens abaixo são o retrato da Fase 0. A versão foi
+> confirmada e o diagnóstico completo, com evidências, está na **§12**.
 
 - Worker: `vendor/stockfish/stockfish.js`.
 - WASM: `vendor/stockfish/stockfish.wasm`.
@@ -328,3 +337,112 @@ interface pode mostrar “Assistente pronto” e falhar somente no chat.
       até ação do usuário**.
 - [x] Riscos e limitações registrados.
 - [x] Nenhuma operação destrutiva executada.
+
+---
+
+## 12. Fase 2 — auditoria do motor (17/11/2026)
+
+**Escopo:** inspeção de `js/engine.js` e de `vendor/stockfish/`, sem alterar
+código. Diagnóstico de build, execução, protocolo UCI, classificação e riscos.
+
+### 12.1. Arquivos inspecionados e caminhos inexistentes
+
+| Caminho | Estado |
+|---|---|
+| `vendor/stockfish/stockfish.js` (62.385 bytes) | **Verificado** |
+| `vendor/stockfish/stockfish.wasm` (366.900 bytes) | **Verificado** |
+| `vendor/stockfish/stockfish.asm.js` (957.535 bytes) | **Verificado**; não referenciado por nenhum arquivo |
+| `vendor/stockfish/LICENSE-GPLv3.txt` (35.147 bytes) | **Verificado** |
+| `js/engine.js` (603 linhas) | **Verificado** |
+| `public/assets/js/services/stockfish/` | **Não existe** |
+| `engine/` | **Não existe** |
+| `move-classification.js` | **Não existe** |
+
+A classificação de lances não tem arquivo próprio: ela vive em `js/engine.js`
+(`ANNOTATIONS`, `THRESHOLDS`, `decideAnnotation`, `buildAnalysis`).
+
+### 12.2. Build e execução
+
+| Item | Resultado | Evidência |
+|---|---|---|
+| Distribuição | `nmrugg/stockfish.js`, licença GPL | cabeçalho do `stockfish.js` (`/*! Stockfish.js ... License: GPL */`) |
+| Data do build | **02/08/2019** | string `Aug  2 2019` dentro de `stockfish.wasm` |
+| Versão | **Stockfish 10** | build de 2019 da referida distribuição; inclui variantes (`UCI_Variant`) |
+| Rótulo do código | “Stockfish 10 (WASM)” | `js/engine.js:504` — **estava correto** |
+| Execução | **Web Worker** | `worker = new Worker('vendor/stockfish/stockfish.js')` em `js/engine.js:112`, com `onmessage`/`postMessage` |
+| Threads | **single-thread** | `_pthread_create` é stub (retorna 11) no binário |
+| Fallback asm.js | **não ligado** | `stockfish.asm.js` não é citado em `js/engine.js` nem em qualquer outro arquivo; falha do WASM só dispara `worker.onerror` |
+
+### 12.3. Comunicação UCI
+
+Comandos efetivamente enviados (`js/engine.js`):
+
+1. `uci`
+2. `setoption name Hash value 32`
+3. `setoption name MultiPV value 1`
+4. `isready`
+5. `ucinewgame`
+6. `position fen <fen>`
+7. `go depth <n>`
+8. `stop` (cancelamento, timeout ou `Engine.stop()`)
+
+| Pergunta | Resposta | Evidência |
+|---|---|---|
+| Envia `UCI_ShowWDL`? | **Não** | nenhuma ocorrência de `wdl`/`UCI_ShowWDL` no repositório, inclusive nos binários |
+| Tem W/D/L do motor? | **Não** | a linha `info` é lida apenas para `score cp`/`score mate` |
+| Tem centipeões? | **Sim** | `parseInfo`, `js/engine.js:66-78` |
+| Tem Expected Score? | **Sim, derivado** | `whiteWinPct` aplica logística sobre cp: `50 + 50*(2/(1+exp(-0.00368208*cp))-1)` |
+
+**Conclusão:** a probabilidade existente é um *Expected Score* heurístico
+calculado no navegador a partir de centipeões — não é WDL do Stockfish.
+
+### 12.4. Classificação atual
+
+A perda usada nas anotações é medida em **pontos percentuais de vitória**, não
+em centipeões (`loss = max(0, antes − depois)` em `js/engine.js:381-383`).
+
+| Constante | Valor | Uso |
+|---|---|---|
+| `THRESHOLDS.blunder` | 30 | Capivarada a partir de 30 pp |
+| `THRESHOLDS.mistake` | 10 | Erro entre 10 e 29,9 pp |
+| `THRESHOLDS.excellent` | 2 | Excelente até 2 pp |
+| `THRESHOLDS.missedBefore` / `missedAfter` / `missedFloor` | 80 / 70 / 45 | Chance perdida |
+| `THRESHOLDS.sacrifice` / `brilliantAfter` / `brilliantFollow` | 2 / 60 / 55 | Brilhante por sacrifício |
+| `THRESHOLDS.turnaroundBefore` / `turnaroundAfter` | 35 / 60 | Brilhante por virada |
+| `THRESHOLDS.brilliantLoss` / `minPly` | 2 / 6 | Brilhante |
+
+Prioridade de decisão (`js/engine.js:329-337`): Brilhante → Melhor → Chance
+perdida → Capivarada → Erro → Excelente → Ótimo.
+
+- Precisão: `clamp(103.1668 * exp(-0.04354 * loss) - 3.1669, 0, 100)` sobre a
+  perda em pp.
+- ACPL: `cpBefore − cpAfter` em centipeões, com mate achatado em ±1400.
+
+**Limitação conceitual:** mate é convertido em ±1400 cp e o empate não é
+modelado; a curva não é calibrada por WDL.
+
+### 12.5. Riscos de front-end
+
+| # | Risco | Gravidade | Evidência |
+|---|---|---|---|
+| R1 | Shape de `positions` é persistido no IndexedDB e lido pela barra de avaliação, gráfico, seta, tags e PDF | Alta | `js/game.js:162-201`, `js/game.js:302-306`, `js/report.js:102-103` |
+| R2 | Estado único `active`: `bestmove` perdido deixa a busca pendente até o timeout de 45 s, que resolve com `cp: null` → 0 cp → 50% silencioso | Alta | `js/engine.js:195-206` |
+| R3 | Paridade de índices (`i % 2`, `winForMover(i)`) assume sequência completa desde a posição inicial; análise parcial corrompe todas as anotações | Média/Alta | `js/engine.js:257-273`, `js/engine.js:378-384` |
+| R4 | Parser por regex de texto UCI (`info ... score cp|mate ... pv`) deixa de pontuar sem erro visível se o formato mudar | Média | `js/engine.js:66-78` |
+| R5 | `Engine.stop()` envia `stop` e chama `terminate()` imediatamente; a promessa pendente só é liquidada pelo timeout | Média | `js/engine.js:213-221` |
+| R6 | `Cache-Control: immutable` de 1 ano em `/vendor/(.*)`: substituir o motor mantendo o mesmo nome de arquivo serve binário antigo para quem já visitou | Alta (na troca de motor) | `vercel.json:6-11` |
+
+**Recomendação registrada:** qualquer campo novo deve ser **aditivo**
+(`positions[i].wdl`), com `version` elevada e fallback para a curva atual quando
+o WDL não existir.
+
+### 12.6. O que não foi verificado nesta etapa
+
+- Teste de posições de referência (perft/profundidade fixa) contra o binário.
+- Desempenho real do build de 2019 em partidas longas.
+- Comportamento em navegadores sem `WebAssembly`.
+- Comparação numérica entre a curva atual e um WDL real.
+
+Nada nesta seção foi declarado “aprovado”: são leituras de código e de binário.
+
+**Plano de execução da Fase 2:** [`docs/PLANO-FASE-2.md`](PLANO-FASE-2.md).
