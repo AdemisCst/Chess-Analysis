@@ -194,10 +194,14 @@ aprovadas:
    local contém apenas um valor de exemplo (`sua…`, 14 caracteres) e
    `AI_MODEL=llama-3.3-70b-versatile`; nada disso foi usado para chamar o
    provedor.
-3. **Produção na Vercel**: o deploy foi **adiado por decisão do usuário**. O site
-   publicado continua com o código antigo e `/api/tags` responde HTTP 401 com
-   “Código de acesso ausente ou inválido”. As variáveis obsoletas
+3. **Produção na Vercel**: o deploy de **produção** foi adiado por decisão do
+   usuário. O site publicado continua com o código antigo e `/api/tags` responde
+   HTTP 401 com “Código de acesso ausente ou inválido”. A branch
+   `fase-1-estabilizacao` foi enviada ao GitHub (`ecf7e5b`) e gerou uma *preview*
+   (`chessanalysis-45sctep02-ademis-cst.vercel.app`), mas ela está protegida pelo
+   login da Vercel (SSO); por isso não foi possível validar `/api/tags` nela por
+   HTTP sem uma sessão autenticada. As variáveis obsoletas
    (`AI_ACCESS_MODE`, `AI_ACCESS_CODES`, `AMIGO_1`) serão removidas **depois**
-   do deploy, porque o código antigo ainda depende delas.
+   do deploy de produção, porque o código antigo ainda depende delas.
 4. **Stockfish 19/WDL**: a versão do arquivo em `vendor/` continua “a validar”; o
    código usa o rótulo “Stockfish 10 (WASM)” e não promete a versão 19.
