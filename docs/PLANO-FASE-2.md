@@ -1,7 +1,7 @@
 # Plano da Fase 2 — Chess-Analysis
 
 **Data:** 17/11/2026  
-**Estado:** plano aprovado para execução; Tarefa 1 em andamento  
+**Estado:** Tarefa 1 **executada e verificada**; Tarefas 2–4 não iniciadas  
 **Base:** diagnóstico da [§12 de `AUDITORIA-INICIAL.md`](AUDITORIA-INICIAL.md) e
 contrato da [versão 3 em `MODELO-DE-DADOS.md`](MODELO-DE-DADOS.md)
 
@@ -123,6 +123,21 @@ alterar nenhum número exibido na interface.
 
 Reverter o commit devolve os três arquivos de 2019. Como os nomes novos não
 colidem com cache, não há estado preso no navegador.
+
+### 1.10. Estado da execução (17/11/2026)
+
+| Etapa | Estado | Evidência |
+|---|---|---|
+| Download e SHA-256 | **Verificado** | hashes idênticos ao release |
+| Substituição em `vendor/` | **Verificado** | 3 removidos, 2 adicionados |
+| `js/engine.js` (Worker, WDL, `engineId`) | **Verificado** | smoke real com análise completa |
+| Interface inalterada | **Verificado** | `winPctWhite` na curva, barra/gráfico/PDF |
+| `stop` no build single-thread | **Verificado** | `bestmove` em 47 ms |
+| Cancelamento e recuperação | **Verificado** | 5 ms; nova análise concluída |
+| Profundidade 12 | **Verificado** | 1.072 ms, 34 posições |
+| Produção | **Não executado** | deploy manual pendente |
+
+Detalhes em [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).
 
 ---
 

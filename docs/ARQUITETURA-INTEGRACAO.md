@@ -218,11 +218,16 @@ erDiagram
 
 ### 6.1. Integração
 
-- Distribuição atual: `vendor/stockfish/stockfish.js` + `.wasm`.
-- Versão real: **não confirmada**; o rótulo do código é “Stockfish 10 (WASM)”.
-- Protocolo UCI, `Hash=32`, `MultiPV=1`.
+- Distribuição atual: `vendor/stockfish/stockfish-19-lite-single.js` +
+  `.wasm` (Stockfish 19 Lite WASM, release v19.0.1).
+- Versão confirmada pelo handshake UCI (`id name Stockfish 19 Lite WASM`) e
+  gravada em `analysis.engineId`.
+- Protocolo UCI, `Hash=32`, `MultiPV=1`, `UCI_ShowWDL=true`.
 - Análise por profundidade, com progresso por posição.
 - Avaliações convertidas em Win% e perda em pontos percentuais.
+- **WDL:** capturado em `positions[i].wdl` (por-mil), mas ainda **não usado**
+  nos cálculos; a interface segue na curva sobre cp.
+- Evidências de execução: [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).
 
 ### 6.2. Classificações
 

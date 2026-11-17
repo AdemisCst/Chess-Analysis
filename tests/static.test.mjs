@@ -1,7 +1,7 @@
 /* Regressões estáticas da Fase 1. Executar com: npm test */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -50,6 +50,20 @@ test('ordem visual das anotações segue a diretriz oficial', async () => {
     assert.ok(engine.includes(
         "const ANNOTATION_ORDER = ['brilliant', 'excellent', 'best', 'good', 'mistake', 'missed', 'blunder'];"
     ));
+});
+
+test('motor atualizado para o Stockfish 19 lite single com WDL capturado', async () => {
+    const engine = await read('js/engine.js');
+    assert.ok(engine.includes("vendor/stockfish/stockfish-19-lite-single.js"));
+    assert.ok(engine.includes('setoption name UCI_ShowWDL value true'));
+    assert.ok(engine.includes('function parseWdl'));
+    assert.equal(engine.includes("'vendor/stockfish/stockfish.js'"), false);
+    // A interface continua usando a curva sobre cp nesta fase.
+    assert.ok(engine.includes('0.00368208'));
+    for (const name of ['stockfish-19-lite-single.js', 'stockfish-19-lite-single.wasm']) {
+        const info = await stat(join(root, 'vendor/stockfish', name));
+        assert.ok(info.size > 1000, name + ' parece vazio');
+    }
 });
 
 test('exports e backup usam a identidade nova sem perder o banco legado', async () => {

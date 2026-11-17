@@ -84,8 +84,8 @@ Chess/
 | Dependência | Versão/identificação | Estado |
 |---|---|---|
 | chess.js | 0.10.3 (informado no LEIA-ME; o arquivo vendorizado não expõe versão no cabeçalho) | **Verificado no uso**; versão exata não confirmada no arquivo |
-| Stockfish.js | distribuição `nmrugg/stockfish.js`; build de **02/08/2019** (Stockfish 10), conforme §12 | **Verificado na Fase 2**; o rótulo do código estava correto |
-| Stockfish WASM | `vendor/stockfish/stockfish.wasm` (366.900 bytes) + `stockfish.asm.js` (957.535 bytes, não usado) | **Verificado na Fase 2** (tamanhos e conteúdo) |
+| Stockfish.js | **Stockfish 19 Lite WASM** (release `nmrugg/stockfish.js` v19.0.1), instalado na Tarefa 1 da Fase 2 | **Verificado** (SHA-256 e execução real); o estado anterior — Stockfish 10, build de 02/08/2019 — está na §12 |
+| Stockfish WASM | `vendor/stockfish/stockfish-19-lite-single.js` (28.230 B) + `stockfish-19-lite-single.wasm` (1.845.971 B) | **Verificado** em [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md) |
 | Base ECO/Lichess | `vendor/eco/openings.json` (~522 KB) | **Verificado** |
 | Peças cburnett | SVGs em `vendor/pieces` | **Verificado** |
 | Node.js | servidor local e scripts de verificação | **Verificado** (ambiente de desenvolvimento) |
@@ -341,6 +341,10 @@ interface pode mostrar “Assistente pronto” e falhar somente no chat.
 ---
 
 ## 12. Fase 2 — auditoria do motor (17/11/2026)
+
+> **Registro histórico:** esta seção descreve o motor **antes** da Tarefa 1.
+> Em 17/11/2026 o Stockfish 10 foi substituído pelo Stockfish 19 Lite WASM;
+> evidências em [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).
 
 **Escopo:** inspeção de `js/engine.js` e de `vendor/stockfish/`, sem alterar
 código. Diagnóstico de build, execução, protocolo UCI, classificação e riscos.

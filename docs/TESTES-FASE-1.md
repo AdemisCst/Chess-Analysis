@@ -203,5 +203,7 @@ aprovadas:
    HTTP sem uma sessão autenticada. As variáveis obsoletas
    (`AI_ACCESS_MODE`, `AI_ACCESS_CODES`, `AMIGO_1`) serão removidas **depois**
    do deploy de produção, porque o código antigo ainda depende delas.
-4. **Stockfish 19/WDL**: a versão do arquivo em `vendor/` continua “a validar”; o
-   código usa o rótulo “Stockfish 10 (WASM)” e não promete a versão 19.
+4. **Stockfish 19/WDL**: resolvido na Tarefa 1 da Fase 2. O motor vendorizado
+   passou a ser o Stockfish 19 Lite WASM e o WDL é capturado como dado bruto,
+   sem uso visual ainda. Evidências em
+   [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).

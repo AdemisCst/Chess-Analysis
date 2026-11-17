@@ -22,7 +22,7 @@
    ======================================================================== */
 
 const Engine = (() => {
-    const WORKER_URL = 'vendor/stockfish/stockfish.js';
+    const WORKER_URL = 'vendor/stockfish/stockfish-19-lite-single.js';
 
     /* ---------- limiares de anotação (calibráveis) ---------- */
     const THRESHOLDS = {
@@ -58,9 +58,26 @@ const Engine = (() => {
     let readyPromise = null;
     let active = null;
     let searchCounter = 0;
+    let engineId = null;
 
     function supported() {
         return location.protocol !== 'file:';
+    }
+
+    /**
+     * WDL opcional do Stockfish 19 (UCI_ShowWDL): `wdl <w> <d> <l>`, em
+     * por-mil, do ponto de vista de quem joga na posição. Devolve null quando
+     * o motor não enviou o trio ou quando ele é inconsistente — nunca inventa
+     * um valor. Nesta fase o WDL é apenas registrado, não entra nos cálculos.
+     */
+    function parseWdl(line) {
+        const match = line.match(/\bwdl (\d+) (\d+) (\d+)\b/);
+        if (!match) return null;
+        const w = Number(match[1]);
+        const d = Number(match[2]);
+        const l = Number(match[3]);
+        if (w + d + l !== 1000 || w > 1000 || d > 1000 || l > 1000) return null;
+        return { w, d, l };
     }
 
     function parseInfo(line) {
@@ -73,6 +90,7 @@ const Engine = (() => {
             depth: depthMatch ? Number(depthMatch[1]) : 0,
             type: scoreMatch[1],
             value: Number(scoreMatch[2]),
+            wdl: parseWdl(line),
             pv: pvMatch ? pvMatch[1].trim().split(/\s+/) : [],
         };
     }
@@ -80,10 +98,12 @@ const Engine = (() => {
     function onLine(line) {
         if (!active) return;
         const info = parseInfo(line);
-        if (info && info.depth >= active.best.depth) {
+        // depth 0 é a resposta do SF19 para posição inválida; não pontua.
+        if (info && info.depth > 0 && info.depth >= active.best.depth) {
             active.best.depth = info.depth;
             active.best.cp = info.type === 'cp' ? info.value : null;
             active.best.mate = info.type === 'mate' ? info.value : null;
+            active.best.wdl = info.wdl;
             active.best.pv = info.pv;
         }
         if (line.startsWith('bestmove')) {
@@ -92,6 +112,7 @@ const Engine = (() => {
             const result = {
                 cp: active.best.cp,
                 mate: active.best.mate,
+                wdl: active.best.wdl,
                 depth: active.best.depth,
                 best,
                 pv: active.best.pv,
@@ -108,6 +129,7 @@ const Engine = (() => {
         }
         if (readyPromise) return readyPromise;
         readyPromise = new Promise((resolve, reject) => {
+            engineId = null;
             try {
                 worker = new Worker(WORKER_URL);
             } catch (e) {
@@ -134,10 +156,15 @@ const Engine = (() => {
             worker.onmessage = event => {
                 const line = typeof event.data === 'string' ? event.data : '';
                 if (!line) return;
+                if (line.startsWith('id name ')) {
+                    engineId = line.slice(8).trim() || null;
+                    return;
+                }
                 if (line.includes('uciok') && !sentOptions) {
                     sentOptions = true;
                     worker.postMessage('setoption name Hash value 32');
                     worker.postMessage('setoption name MultiPV value 1');
+                    worker.postMessage('setoption name UCI_ShowWDL value true');
                     worker.postMessage('isready');
                     return;
                 }
@@ -176,7 +203,7 @@ const Engine = (() => {
 
             active = {
                 id,
-                best: { cp: null, mate: null, depth: -1, pv: [] },
+                best: { cp: null, mate: null, wdl: null, depth: -1, pv: [] },
                 finish: result => {
                     cleanup();
                     resolve(result);
@@ -199,6 +226,7 @@ const Engine = (() => {
                 resolve({
                     cp: fallback ? fallback.cp : null,
                     mate: fallback ? fallback.mate : null,
+                    wdl: fallback ? fallback.wdl : null,
                     depth: fallback ? fallback.depth : 0,
                     best: null,
                     pv: [],
@@ -218,6 +246,7 @@ const Engine = (() => {
         worker = null;
         readyPromise = null;
         active = null;
+        engineId = null;
     }
 
     /* ====================================================================
@@ -499,9 +528,13 @@ const Engine = (() => {
 
         return {
             gameId,
+            // v2: o win% continua vindo da curva sobre cp. O campo `wdl` das
+            // posições é apenas registrado nesta fase; a versão 3 (win% a
+            // partir do WDL) só entra na tarefa de classificação.
             version: 2,
             depth,
-            engine: 'Stockfish 10 (WASM)',
+            engine: engineId || 'Stockfish (WASM)',
+            engineId: engineId || null,
             createdAt: createdAt || Date.now(),
             positions,
             moves: evaluated,

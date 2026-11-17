@@ -73,7 +73,7 @@ Chave: `key = gameId@depth`; índice `gameId`.
 |---|---|---|
 | `gameId` | string | |
 | `depth` | number | profundidade solicitada |
-| `version` | number | `2` nas análises atuais; `3` quando houver WDL (§2.3.1) |
+| `version` | number | `2` hoje, inclusive com `wdl` bruto; `3` quando o win% passar a derivar do WDL (§2.3.1) |
 | `engine` | string | rótulo de exibição; o motor atual grava “Stockfish 10 (WASM)” |
 | `engineId` | string \| null | opcional; linha `id name` devolvida pelo UCI. Ausente nas análises antigas |
 | `positions` | array | `{cp, mate, depth, best, pv, wdl?}` por posição |
@@ -106,7 +106,8 @@ Cada item de `moves` contém: `loss` (pontos percentuais), `cpLoss`,
 Regras do `wdl`:
 
 1. Só existe quando o motor responde com `UCI_ShowWDL` ativo e a linha `info`
-   trouxer o trio `wdl <w> <d> <l>`.
+   trouxer o trio `wdl <w> <d> <l>`. Desde a Tarefa 1 da Fase 2 o campo é
+   gravado nas análises **v2** como dado bruto, sem entrar no cálculo.
 2. São inteiros; a soma é 1000 (`l = 1000 − w − d`).
 3. A perspectiva é a **de quem joga** — a mesma de `cp` e `mate`. Não inverter
    duas vezes ao converter para brancas.
@@ -131,7 +132,7 @@ indica que veio da curva logística sobre `cp`.
 | `version` | Conteúdo | Leitura |
 |---|---|---|
 | `1` | `positions` + `winPctWhite`, sem `moves` anotados | Reconstruída por `Engine.enrichAnalysis` |
-| `2` | Acrescenta `moves`, `accuracy`, `acpl`, `counts`, fases e momentos; win% pela curva logística | Estado atual |
+| `2` | Acrescenta `moves`, `accuracy`, `acpl`, `counts`, fases e momentos; win% pela curva logística. Desde a Tarefa 1 pode carregar `positions[i].wdl` bruto | Estado atual |
 | `3` | `version: 2` + `positions[i].wdl` e `engineId` | **Previsto**; ausência de `wdl` cai na curva da v2 |
 
 Regras de migração:
@@ -241,6 +242,10 @@ Regras:
 4. Se o `wdl` for inconsistente (fora de 0–1000 ou soma diferente de 1000),
    descartar o campo e usar a curva — registrando isso no item, sem inventar
    números.
+
+**Estado após a Tarefa 1:** o motor já devolve `wdl` e o campo é gravado nas
+análises **v2**, mas `winPctWhite`, perda e precisão continuam na curva sobre
+`cp`. A `version: 3` é o trabalho da próxima tarefa.
 
 
 ---
