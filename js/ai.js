@@ -145,6 +145,9 @@ Regras obrigatórias:
             return 'O servidor não conseguiu autenticar no provedor de IA. A chave configurada na Vercel é inválida ou expirou.';
         }
         if (error.status === 404) {
+            if (error.jsonBody === false) {
+                return 'A rota /api/tags não respondeu neste endereço. O proxy da IA existe apenas no site publicado (Vercel) ou em vercel dev; o servidor estático local não o executa.';
+            }
             return 'O modelo configurado não existe no provedor. Confira AI_MODEL na Vercel.';
         }
         if (error.status === 429) {
@@ -168,6 +171,9 @@ Regras obrigatórias:
         );
         error.status = response.status;
         error.code = payload && payload.code ? payload.code : 'http_error';
+        // Sem JSON, a resposta não veio do proxy do projeto (por exemplo, o
+        // servidor estático local devolve "not found").
+        error.jsonBody = !!payload;
         return error;
     }
 

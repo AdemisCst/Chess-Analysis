@@ -330,7 +330,7 @@ Não implementar antecipadamente na Fase 1. O botão de análise em lote existen
 | Fumaça no navegador | Edge headless + CDP | Executado: importação, partida, abas, relatório |
 | Análise real | Edge headless + Stockfish | Executado em profundidade 8 |
 | PDF | Edge `--print-to-pdf` | Executado: PDF de 3 páginas |
-| Backups | Navegador | Estrutura validada; backup real do usuário pendente |
+| Backups | Edge headless + CDP | Executado com exemplos: exportar → limpar → restaurar → backup prévio |
 | Deploy | Vercel CLI + HTTP | Pendente de variável real e autorização |
 
 Evidências em `docs/TESTES-FASE-1.md`. Nenhum teste é declarado aprovado sem

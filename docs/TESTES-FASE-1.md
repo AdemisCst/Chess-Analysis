@@ -110,15 +110,14 @@ A mesma execução analisou uma partida real dos exemplos com profundidade 8.
 | Momentos críticos | 5 |
 | Série para o gráfico | presente (`winPctWhite`) |
 
-Ordem das anotações verificada na tabela do relatório:
+Ordem das anotações verificada lendo as linhas reais da tabela do relatório
+(harness com `DOMParser`, não busca textual):
 
-1. Brilhante (`!!`)
-2. Excelente (`!`)
-3. Melhor (`★`)
-4. Ótimo (`👍`)
-5. Erro (`?`)
-6. Chance perdida (`×`)
-7. Capivarada (`??`)
+```
+!! Brilhante | ! Excelente | ★ Melhor | 👍 Ótimo | ? Erro | × Chance perdida | ?? Capivarada
+```
+
+Resultado: `ordemCorreta: true`.
 
 ---
 
@@ -137,7 +136,7 @@ Resultado observado:
 | Verificação | Resultado |
 |---|---|
 | Cabeçalho do arquivo | `%PDF-` |
-| Tamanho | 134.961 bytes |
+| Tamanho | 127.378 bytes na execução final (134.961 bytes na primeira) |
 | Páginas estimadas | 3 |
 | Ficha da partida | presente |
 | Gráfico de avaliação | presente |
@@ -154,18 +153,51 @@ dados.
 
 ---
 
-## 7. O que ainda não foi validado
+## 7. Backup, relatório sem análise, abas e layout
+
+Harness: `C:\Users\ademi\AppData\Local\Temp\opencode\cdp-backup.mjs`.
+
+Dados de teste carregados com **Carregar exemplos** (3 partidas). Não é a
+biblioteca real do usuário.
+
+| Verificação | Resultado observado |
+|---|---|
+| Exportação JSON | `app: "chess-analysis"`; lojas `games`, `data`, `analysis`, `ai`, `meta` |
+| Nome do arquivo | `chess-analysis-backup-20261116.json` |
+| Limpeza antes da restauração | 0 partidas |
+| Restauração | 3 partidas; 3 registros em `data`; 1 registro em `ai` |
+| Modal de confirmação | abriu |
+| Backup prévio automático | baixado antes da mesclagem |
+| Arquivo inválido (`{"foo":1}`) | recusado; biblioteca permaneceu com 3 partidas |
+| Relatório sem análise | “não analisada pelo Stockfish”; sem cartões de precisão, sem gráfico, sem resumo inventado |
+| Relatório com resumo salvo | markdown convertido (`<strong>`, `<li>`) e modelo citado |
+| Navegar lances na aba Análise | aba permaneceu ativa após `setPly`, ⏭ e ⏮ (`aria-selected="true"`) |
+| Layout desktop (1400 px) | 2 colunas; “Leitura do Acervo” e “Repertório Sugerido” no mesmo topo (226 px) |
+| Layout mobile (420 px) | 1 coluna; painéis empilhados |
+| Capturas 1440×950 e 400×860 | Biblioteca, Treinador IA, partida e Configurações; fundo `rgb(11, 18, 32)` |
+| Rolagem horizontal | 0 em todas as capturas (desktop e mobile) |
+| `/api/tags` ausente (servidor estático) | mensagem explica que o proxy só existe na Vercel ou em `vercel dev`; não culpa `AI_MODEL` |
+| Erros de console / exceções | nenhum |
+
+---
+
+## 8. O que ainda não foi validado
 
 Estas pendências dependem de ação externa e **não** foram marcadas como
 aprovadas:
 
-1. **Backup real do usuário**: a estrutura de exportação/restauração foi revisada
-   no código e o teste automatizado confere os nomes, mas nenhum backup real da
-   biblioteca do usuário foi exportado e restaurado nesta máquina.
+1. **Backup da biblioteca real do usuário**: o fluxo completo
+   exportar → limpar → restaurar → backup prévio foi executado com os exemplos.
+   Falta executá-lo no navegador onde estão as partidas reais do usuário.
 2. **IA DeepSeek ponta a ponta**: o proxy valida a credencial em `/models`, mas a
-   chave real precisa estar configurada na Vercel ou em `.env` local. Sem ela, o
-   comportamento testado é justamente o modo indisponível, com mensagem clara.
-3. **Produção na Vercel**: o deploy e a verificação HTTP das rotas `/api/tags` e
-   `/api/chat` continuam pendentes de variável real e autorização de publicação.
+   chave real precisa estar configurada na Vercel ou em `.env` local. O `.env`
+   local contém apenas um valor de exemplo (`sua…`, 14 caracteres) e
+   `AI_MODEL=llama-3.3-70b-versatile`; nada disso foi usado para chamar o
+   provedor.
+3. **Produção na Vercel**: o deploy foi **adiado por decisão do usuário**. O site
+   publicado continua com o código antigo e `/api/tags` responde HTTP 401 com
+   “Código de acesso ausente ou inválido”. As variáveis obsoletas
+   (`AI_ACCESS_MODE`, `AI_ACCESS_CODES`, `AMIGO_1`) serão removidas **depois**
+   do deploy, porque o código antigo ainda depende delas.
 4. **Stockfish 19/WDL**: a versão do arquivo em `vendor/` continua “a validar”; o
    código usa o rótulo “Stockfish 10 (WASM)” e não promete a versão 19.
