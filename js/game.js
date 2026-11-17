@@ -479,7 +479,7 @@ async function generateSummary() {
         stream.finish();
         const record = await DB.saveAI(game.id, 'summary', {
             text: response.text,
-            model: AI.config().model,
+            model: (State.ai && State.ai.model) || 'modelo do servidor',
             depth: analysis ? analysis.depth : null,
         });
         State.aiSummaries[game.id] = record;
@@ -540,7 +540,7 @@ async function generateTags() {
         }
         game.aiTags = tags;
         await DB.put('games', game);
-        await DB.saveAI(game.id, 'tags', { tags, model: AI.config().model });
+        await DB.saveAI(game.id, 'tags', { tags, model: (State.ai && State.ai.model) || 'modelo do servidor' });
         if (State.current && State.current.id === game.id) renderTags();
         renderLibrary();
         toast('Tags da IA salvas.', 'success');
@@ -578,7 +578,7 @@ async function removeAITag(tag) {
     if (!State.current) return;
     State.current.aiTags = (State.current.aiTags || []).filter(item => item !== tag);
     await DB.put('games', State.current);
-    await DB.saveAI(State.current.id, 'tags', { tags: State.current.aiTags, model: AI.config().model });
+    await DB.saveAI(State.current.id, 'tags', { tags: State.current.aiTags, model: (State.ai && State.ai.model) || 'modelo do servidor' });
     renderTags();
     renderLibrary();
 }
@@ -610,69 +610,25 @@ function renderGame() {
 
 /* ===================== EVENTOS ===================== */
 /**
- * Abre uma versão para impressão do relatório da partida. O navegador oferece
- * "Salvar como PDF" na janela de impressão; nada é enviado a servidores.
+ * Abre o relatório detalhado em uma página própria. O módulo Report monta o
+ * HTML sem biblioteca externa; o navegador oferece “Salvar como PDF”.
  */
 function printGameReport() {
     const game = State.current;
     if (!game) return;
-    const analysis = State.analysis;
-    const summary = State.currentSummary && State.currentSummary.text;
-    const counts = analysis && analysis.counts ? analysis.counts : { w: {}, b: {} };
-    const rows = [
-        ['Evento', game.event || '—'],
-        ['Local', game.site || '—'],
-        ['Data', formatDate(game.dateISO, game.headers && game.headers.Date)],
-        ['Abertura', openingLabel(game)],
-        ['Controle', game.timeControl || '—'],
-        ['Resultado', game.result || '*'],
-        ['Elos', [game.whiteElo, game.blackElo].filter(Boolean).join(' / ') || '—'],
-    ];
-    const annotationRows = analysis ? Engine.ANNOTATION_ORDER.map(key => {
-        const info = Engine.annotationInfo(key);
-        return `<tr><td>${info.symbol} ${info.label}</td><td>${counts.w[key] || 0}</td><td>${counts.b[key] || 0}</td></tr>`;
-    }).join('') : '';
-    const keyRows = analysis && analysis.keyMoments ? analysis.keyMoments.map(moment => {
-        const info = Engine.annotationInfo(moment.annotation || 'mistake');
-        return `<tr><td>${Math.ceil(moment.ply / 2)}${moment.color === 'w' ? '.' : '...'}</td>
-            <td>${escapeHtml(moment.san)}</td><td>${info.symbol} ${info.label}</td>
-            <td>${escapeHtml(moment.bestSan || '—')}</td></tr>`;
-    }).join('') : '';
-    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
-        <title>Relatório — ${escapeHtml(game.white)} × ${escapeHtml(game.black)}</title>
-        <style>
-            body{font-family:Segoe UI,Arial,sans-serif;color:#1b2432;max-width:820px;margin:28px auto;padding:0 20px;line-height:1.5}
-            h1{font-size:22px;margin:0 0 4px} h2{font-size:15px;margin:22px 0 8px;border-bottom:1px solid #d8dee8;padding-bottom:4px}
-            table{width:100%;border-collapse:collapse;font-size:13px} td,th{border-bottom:1px solid #e4e9f1;padding:5px 6px;text-align:left}
-            th{color:#667085;font-size:11px;text-transform:uppercase} .muted{color:#667085} .sym{font-weight:700}
-            .cards{display:flex;gap:12px;margin:10px 0} .card{flex:1;border:1px solid #d8dee8;border-radius:8px;padding:10px}
-            .card strong{font-size:20px;display:block} ul{margin:4px 0 10px 20px} @media print{body{margin:0}}
-        </style></head><body>
-        <h1>${escapeHtml(game.white)} × ${escapeHtml(game.black)}</h1>
-        <p class="muted">${escapeHtml(formatDate(game.dateISO, game.headers && game.headers.Date))} · ${escapeHtml(openingLabel(game))} · ${escapeHtml(game.result || '*')}</p>
-        <h2>Ficha da partida</h2>
-        <table>${rows.map(([key, value]) => `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(value)}</td></tr>`).join('')}</table>
-        ${analysis ? `<h2>Precisão e anotações</h2>
-            <div class="cards">
-                <div class="card"><span class="muted">Brancas</span><strong>${analysis.accuracy.w == null ? '—' : analysis.accuracy.w + '%'}</strong><span class="muted">ACPL ${analysis.acpl.w == null ? '—' : analysis.acpl.w}</span></div>
-                <div class="card"><span class="muted">Pretas</span><strong>${analysis.accuracy.b == null ? '—' : analysis.accuracy.b + '%'}</strong><span class="muted">ACPL ${analysis.acpl.b == null ? '—' : analysis.acpl.b}</span></div>
-            </div>
-            <table><thead><tr><th>Anotação</th><th>Brancas</th><th>Pretas</th></tr></thead><tbody>${annotationRows}</tbody></table>
-            ${keyRows ? `<h2>Momentos-chave</h2><table><thead><tr><th>Lance</th><th>Jogada</th><th>Anotação</th><th>Melhor</th></tr></thead><tbody>${keyRows}</tbody></table>` : ''}`
-        : '<p class="muted">Partida ainda não analisada pelo Stockfish.</p>'}
-        ${summary ? `<h2>Resumo do assistente</h2>${renderMarkdown(summary)}` : ''}
-        <hr><p class="muted">Gerado pelo Acervo 64 em ${new Date().toLocaleString('pt-BR')}.</p>
-        </body></html>`;
-    const win = window.open('', '_blank');
-    if (!win) {
-        toast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'warning');
+    if (!window.Report) {
+        toast('O gerador de relatório não foi carregado.', 'error');
         return;
     }
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => { try { win.print(); } catch (error) { /* usuário pode imprimir manualmente */ } }, 350);
+    const opened = Report.open(
+        game,
+        State.data,
+        State.analysis,
+        State.currentSummary || null
+    );
+    if (!opened) {
+        toast('O navegador bloqueou a janela do relatório. Libere pop-ups para este site.', 'warning');
+    }
 }
 
 function bindGameEvents() {

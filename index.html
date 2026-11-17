@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ========================================================================
    ARQUIVO: index.html
-   PROJETO: Chess Analysis — Organizador de partidas de xadrez (PGN)
+   PROJETO: Chess-Analysis
    DESCRIÇÃO: Estrutura de todas as telas da aplicação.
    Como usar: execute "iniciar.bat" (recomendado) ou abra este arquivo
    diretamente no navegador (a análise com Stockfish exige o iniciar.bat).
@@ -10,9 +10,9 @@
      01 - Cabeçalho e navegação
      02 - Biblioteca (lista, busca e importação de PGN)
      03 - Partida (tabuleiro, lances, análise e IA)
-     04 - Estatísticas
+     04 - Desempenho
      05 - IA (insights, repertório e chat)
-     06 - Ajustes
+     06 - Configurações
      07 - Modal genérico, avisos e scripts
    ======================================================================== -->
 
@@ -20,7 +20,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chess-Analysis — Organizador de Partidas</title>
+    <title>Chess-Analysis</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♞</text></svg>">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -39,40 +39,37 @@
         <button id="importBtn" class="btn btn-primary">＋ Importar PGN</button>
         <button id="exportBtn" class="btn btn-secondary">⇩ Exportar</button>
         <button id="aiStatusChip" class="status-chip offline" title="Status do assistente de IA">
-            <span class="dot" aria-hidden="true"></span><span id="aiStatusText">Assistente: verificando…</span>
+            <span class="dot" aria-hidden="true"></span><span id="aiStatusText">Treinador IA: verificando…</span>
         </button>
         <button id="themeBtn" class="btn btn-icon" title="Alternar tema claro/escuro">🌙</button>
     </div>
-    <!-- Input de arquivos usado pelo botão Importar e pela área de arrastar -->
+    <!-- Input de arquivos usado pelo botão Importar -->
     <input type="file" id="fileInput" accept=".pgn,.txt" multiple hidden>
 </header>
 
 <div id="protocolBanner" class="protocol-banner hidden">
     <strong>Modo arquivo local.</strong>
-    A biblioteca e a IA funcionam, mas a análise com Stockfish precisa de um servidor local.
-    Abra o projeto com <code>iniciar.bat</code> — o acervo aberto por <code>file://</code> é separado do acervo do servidor.
+    A biblioteca funciona, mas a análise com Stockfish e o Treinador IA precisam de um servidor.
+    Abra o projeto com <code>iniciar.bat</code> — a biblioteca aberta por <code>file://</code> é separada da biblioteca do servidor.
 </div>
 
 <div class="app-layout">
     <!-- Barra de navegação lateral -->
     <nav class="rail" aria-label="Navegação principal">
-        <button class="rail-btn active" data-view="library" title="Biblioteca">
+        <button class="rail-btn active" data-view="library" title="Biblioteca" aria-current="page">
             <span class="rail-icon">📚</span><span>Biblioteca</span>
         </button>
-        <button class="rail-btn" data-view="game" title="Partida">
-            <span class="rail-icon">♟</span><span>Partida</span>
+        <button class="rail-btn" data-view="game" title="Análise da partida">
+            <span class="rail-icon">♟</span><span>Análise</span>
         </button>
-        <button class="rail-btn" data-view="openings" title="Aberturas">
-            <span class="rail-icon">📖</span><span>Aberturas</span>
+        <button class="rail-btn" data-view="stats" title="Desempenho">
+            <span class="rail-icon">📊</span><span>Desempenho</span>
         </button>
-        <button class="rail-btn" data-view="stats" title="Estatísticas">
-            <span class="rail-icon">📊</span><span>Estatísticas</span>
+        <button class="rail-btn" data-view="ai" title="Treinador IA">
+            <span class="rail-icon" aria-hidden="true">🤖</span><span>Treinador IA</span>
         </button>
-        <button class="rail-btn" data-view="ai" title="Assistente de IA">
-            <span class="rail-icon" aria-hidden="true">🤖</span><span>Assistente</span>
-        </button>
-        <button class="rail-btn" data-view="settings" title="Ajustes">
-            <span class="rail-icon">⚙</span><span>Ajustes</span>
+        <button class="rail-btn" data-view="settings" title="Configurações">
+            <span class="rail-icon">⚙</span><span>Configurações</span>
         </button>
         <div class="rail-foot" id="railCount"></div>
     </nav>
@@ -125,12 +122,6 @@
                     <button class="btn btn-sm btn-ghost danger" data-bulk="delete">Excluir</button>
                     <button class="btn btn-sm btn-ghost" data-bulk="clear">Limpar seleção</button>
                 </div>
-            </div>
-
-            <div id="dropZone" class="dropzone" role="button" tabindex="0" aria-label="Importar arquivos PGN">
-                <span class="drop-icon">⇪</span>
-                <p><strong>Arraste arquivos .pgn aqui</strong> ou clique para selecionar</p>
-                <small>Vários arquivos e várias partidas por arquivo são suportados.</small>
             </div>
 
             <div class="panel table-panel">
@@ -294,6 +285,7 @@
                     <p class="muted">Reconhecidas pela base aberta do Lichess e cruzadas com os seus resultados.</p>
                 </div>
                 <div class="view-head-actions">
+                    <button class="btn btn-ghost" data-goto="stats">← Desempenho</button>
                     <label class="sr-only" for="openingsColor">Filtrar por cor</label>
                     <select id="openingsColor" class="select">
                         <option value="">Todas as cores</option>
@@ -313,14 +305,15 @@
             <p class="hint">A detecção usa o maior prefixo conhecido de lances. A base é local e não envia nada para a internet.</p>
         </section>
 
-        <!-- ===================== 05 - ESTATÍSTICAS ===================== -->
-        <section id="view-stats" class="view" aria-label="Estatísticas">
+        <!-- ===================== 05 - DESEMPENHO ===================== -->
+        <section id="view-stats" class="view" aria-label="Desempenho">
             <div class="view-head">
                 <div>
-                    <h2>Estatísticas</h2>
-                    <p class="muted">Calculadas localmente a partir das partidas importadas.</p>
+                    <h2>Desempenho</h2>
+                    <p class="muted">Calculado localmente a partir das partidas importadas.</p>
                 </div>
                 <div class="view-head-actions">
+                    <button id="statsOpeningsBtn" class="btn btn-secondary" data-goto="openings">📖 Aberturas</button>
                     <button id="statsToAiBtn" class="btn btn-secondary">🤖 Gerar leitura com IA</button>
                 </div>
             </div>
@@ -370,12 +363,12 @@
             </div>
         </section>
 
-        <!-- ===================== 05 - IA ===================== -->
-        <section id="view-ai" class="view" aria-label="Assistente de IA">
+        <!-- ===================== 05 - TREINADOR IA ===================== -->
+        <section id="view-ai" class="view" aria-label="Treinador IA">
             <div class="view-head">
                 <div>
-                    <h2>Assistente de IA</h2>
-                    <p class="muted">Leituras e sugestões geradas a partir do seu acervo. Você escolhe o que enviar.</p>
+                    <h2>Treinador IA</h2>
+                    <p class="muted">O Stockfish calcula; a IA interpreta e orienta. Você escolhe o que enviar.</p>
                 </div>
                 <div class="view-head-actions">
                     <button id="aiRefreshStatus" class="btn btn-secondary">Verificar assistente</button>
@@ -383,30 +376,26 @@
                 </div>
             </div>
 
-            <details class="help ai-status-details">
-                <summary>Detalhes da conexão</summary>
-                <div id="aiStatusPanel" class="panel ai-status-panel"></div>
-            </details>
+            <!-- Indicador persistente de provedor externo e privacidade. -->
+            <div id="aiPrivacyNotice" class="notice" role="status" aria-live="polite"></div>
 
             <div class="ai-grid">
-                <div class="ai-column">
-                    <div class="panel">
-                        <div class="panel-head">
-                            <h3>Leitura do acervo</h3>
-                            <button id="genInsightsBtn" class="btn btn-sm btn-primary">Gerar</button>
-                        </div>
-                        <p class="muted small" id="insightsMeta">Ainda não gerado.</p>
-                        <div id="insightsBox" class="ai-output"><p class="muted small">Gere um diagnóstico das suas partidas, com pontos fortes, pontos fracos e um plano de evolução.</p></div>
+                <div class="panel">
+                    <div class="panel-head">
+                        <h3>Leitura do Acervo</h3>
+                        <button id="genInsightsBtn" class="btn btn-sm btn-primary">Gerar</button>
                     </div>
+                    <p class="muted small" id="insightsMeta">Ainda não gerado.</p>
+                    <div id="insightsBox" class="ai-output"><p class="muted small">Gere um diagnóstico das suas partidas, com pontos fortes, pontos fracos e um plano de evolução.</p></div>
+                </div>
 
-                    <div class="panel">
-                        <div class="panel-head">
-                            <h3>Repertório sugerido</h3>
-                            <button id="genRepertoireBtn" class="btn btn-sm btn-primary">Gerar</button>
-                        </div>
-                        <p class="muted small" id="repertoireMeta">Ainda não gerado.</p>
-                        <div id="repertoireBox" class="ai-output"><p class="muted small">Sugestão de repertório baseada nas aberturas que você realmente joga.</p></div>
+                <div class="panel">
+                    <div class="panel-head">
+                        <h3>Repertório Sugerido</h3>
+                        <button id="genRepertoireBtn" class="btn btn-sm btn-primary">Gerar</button>
                     </div>
+                    <p class="muted small" id="repertoireMeta">Ainda não gerado.</p>
+                    <div id="repertoireBox" class="ai-output"><p class="muted small">Sugestão de repertório baseada nas aberturas que você realmente joga.</p></div>
                 </div>
 
                 <div class="panel chat-panel hidden" aria-hidden="true">
@@ -434,11 +423,11 @@
             </div>
         </section>
 
-        <!-- ===================== 06 - AJUSTES ===================== -->
-        <section id="view-settings" class="view" aria-label="Ajustes">
+        <!-- ===================== 06 - CONFIGURAÇÕES ===================== -->
+        <section id="view-settings" class="view" aria-label="Configurações">
             <div class="view-head">
                 <div>
-                    <h2>Ajustes</h2>
+                    <h2>Configurações</h2>
                     <p class="muted">Preferências salvas neste navegador.</p>
                 </div>
             </div>
@@ -448,7 +437,7 @@
                     <h3>Perfil e tabuleiro</h3>
                     <label class="label" for="playerNamesInput">Seus nomes nos PGN</label>
                     <input id="playerNamesInput" class="input" placeholder="Ex.: Silva, Carlos; SilvaCarlos">
-                    <p class="hint">Separe apelidos com ponto e vírgula. A vírgula é mantida, pois nomes de PGN costumam ser “Sobrenome, Nome”. Usado para calcular suas cores e resultados; se ficar vazio, o aplicativo tenta deduzir.</p>
+                    <p class="hint">Separe apelidos com ponto e vírgula. A vírgula é mantida, pois nomes de PGN costumam ser “Sobrenome, Nome”. Usado para calcular suas cores e resultados; se ficar vazio, o aplicativo tenta deduzir. A identificação definitiva virá na Fase 5 (PlayerIdentity).</p>
 
                     <label class="label" for="depthSelect">Profundidade do Stockfish</label>
                     <select id="depthSelect" class="select">
@@ -461,48 +450,21 @@
                 </div>
 
                 <div class="panel">
-                    <h3>Assistente de IA</h3>
-                    <p class="hint">Opcional. Usado em resumos de partida, leitura do acervo e repertório. O aplicativo continua funcionando sem ele.</p>
+                    <h3>Treinador IA</h3>
+                    <p class="hint">Opcional. Usado em resumos de partida, leitura do acervo e repertório. A chave do provedor fica somente no servidor (Vercel). O aplicativo continua funcionando sem ele.</p>
                     <div class="inline-actions">
                         <button id="testAiBtn" class="btn btn-secondary">Testar assistente</button>
                         <button id="saveAiBtn" class="btn btn-primary">Salvar</button>
                     </div>
                     <div id="aiTestResult" class="test-result" role="status" aria-live="polite"></div>
 
-                    <details class="help">
-                        <summary>Configuração avançada</summary>
-                        <label class="label" for="aiModeSelect">Onde o assistente roda</label>
-                        <select id="aiModeSelect" class="select">
-                            <option value="auto">Automático (PC ou site)</option>
-                            <option value="local">Somente no meu PC</option>
-                            <option value="proxy">Somente pelo site (código)</option>
-                        </select>
-
-                        <label class="label" for="aiProxyInput">Endereço do site publicado</label>
-                        <input id="aiProxyInput" class="input" name="ai-proxy" autocomplete="off" spellcheck="false" placeholder="Deixe vazio para usar este site">
-                        <p class="hint">Em branco, o aplicativo usa o próprio endereço. Preencha só se o assistente estiver em outro domínio.</p>
-
-                        <label class="label" for="aiCodeInput">Código de acesso</label>
-                        <input id="aiCodeInput" class="input" name="ai-code" type="password" autocomplete="off" spellcheck="false" placeholder="Recebido de quem compartilhou o site">
-                        <p class="hint">Necessário quando o site publicado usa código. Fica salvo apenas neste navegador.</p>
-
-                        <label class="label" for="aiEndpointInput">Endereço do serviço no PC</label>
-                        <input id="aiEndpointInput" class="input" name="ai-endpoint" autocomplete="off" spellcheck="false" placeholder="http://localhost:11434">
-
-                        <label class="label" for="aiModelInput">Modelo</label>
-                        <input id="aiModelInput" class="input" name="ai-model" list="aiModelList" autocomplete="off" spellcheck="false" placeholder="qwen2.5:3b">
-                        <datalist id="aiModelList"></datalist>
-                        <p class="hint">No PC, você pode usar um modelo local (Ollama) sem limites. Para 8 GB de RAM, use <code>qwen2.5:3b</code>; instale com <code>ollama pull qwen2.5:3b</code>.</p>
-                        <details class="help">
-                            <summary>Como configurar no PC</summary>
-                            <ol>
-                                <li>Instale o Ollama: <code>ollama.com/download</code>.</li>
-                                <li>No terminal, rode <code>ollama pull qwen2.5:3b</code>.</li>
-                                <li>Mantenha o Ollama aberto e clique em <strong>Testar assistente</strong>.</li>
-                                <li>Se houver erro de origem, feche o Ollama e abra com <code>set OLLAMA_ORIGINS=https://SEU-SITE.vercel.app</code> antes de iniciar.</li>
-                            </ol>
-                        </details>
-                    </details>
+                    <label class="check-row" for="aiBlockInput">
+                        <input id="aiBlockInput" type="checkbox">
+                        <span><strong>Não enviar dados à IA</strong> — bloqueia qualquer chamada externa e mantém biblioteca, Stockfish, estatísticas e PDF funcionando.</span>
+                    </label>
+                    <button id="revokeConsentBtn" class="btn btn-sm btn-ghost">Revogar autorização de envio</button>
+                    <p class="hint" id="aiConsentState"></p>
+                    <p class="hint">O navegador fala apenas com <code>/api/chat</code> e <code>/api/tags</code> deste site. Endereço, modelo e chave do provedor são definidos no servidor, não aqui.</p>
                 </div>
 
                 <div class="panel">
@@ -515,19 +477,18 @@
                         <button id="analyzeAllBtn" class="btn btn-secondary">Analisar partidas pendentes</button>
                         <button id="clearLibraryBtn" class="btn btn-ghost danger">Apagar toda a biblioteca</button>
                     </div>
-                    <p class="hint">O backup JSON inclui partidas, tags, análises e textos da IA.</p>
+                    <p class="hint">O backup JSON inclui partidas, tags, análises e textos da IA. Antes de restaurar, o aplicativo valida o arquivo e gera um backup do estado atual.</p>
                 </div>
 
                 <div class="panel">
                     <h3>Sobre</h3>
-                    <p class="small">Chess Analysis é um aplicativo estático: seus dados ficam no IndexedDB deste navegador.</p>
+                    <p class="small">Chess-Analysis é um aplicativo estático: seus dados ficam no IndexedDB deste navegador.</p>
                     <ul class="about-list small">
-                        <li>Stockfish 10 (GPLv3) — análise local.</li>
-                        <li>chess.js 0.10.3 — regras e validação.</li>
+                        <li>Stockfish (GPLv3) — análise local em Web Worker + WASM.</li>
+                        <li>chess.js — regras e validação dos lances.</li>
                         <li>Peças cburnett (CC BY-SA 3.0), via Lichess.</li>
-                        <li>Ollama — modelo de linguagem local opcional.</li>
+                        <li>Treinador IA externo opcional — provedor configurado no servidor (DeepSeek).</li>
                     </ul>
-                    <p class="small muted">As licenças completas estão nas pastas <code>vendor/</code>.</p>
                 </div>
             </div>
         </section>
@@ -555,6 +516,7 @@
 <script src="js/storage.js" defer></script>
 <script src="js/board.js" defer></script>
 <script src="js/engine.js" defer></script>
+<script src="js/report.js" defer></script>
 <script src="js/ai.js" defer></script>
 <script src="js/openings.js" defer></script>
 <script src="js/tags.js" defer></script>

@@ -22,12 +22,12 @@ function renderOpeningsView() {
         if (identity.name) {
             identityBox.className = identity.inferred ? 'notice' : 'notice accent';
             identityBox.innerHTML = identity.inferred
-                ? `Identifiquei você como <strong>${escapeHtml(identity.name)}</strong>. Se estiver errado, defina seu nome nos Ajustes.`
+                ? `Identifiquei você como <strong>${escapeHtml(identity.name)}</strong>. Se estiver errado, defina seu nome nas Configurações.`
                 : `Analisando as partidas de <strong>${escapeHtml(identity.name)}</strong>.`;
             identityBox.classList.remove('hidden');
         } else {
             identityBox.className = 'notice';
-            identityBox.innerHTML = 'Ainda não sei qual jogador é você. <button class="link-btn" data-open-settings>Defina seu nome nos Ajustes</button> para separar as aberturas por cor.';
+            identityBox.innerHTML = 'Ainda não sei qual jogador é você. <button class="link-btn" data-open-settings>Defina seu nome nas Configurações</button> para separar as aberturas por cor.';
             identityBox.classList.remove('hidden');
         }
     }
@@ -102,7 +102,7 @@ function renderStatsView() {
         identityBox.classList.remove('hidden');
     } else if (stats.total) {
         identityBox.className = 'notice';
-        identityBox.innerHTML = `Ainda não sei qual jogador é você. <button class="link-btn" data-open-settings>Defina seu nome nos Ajustes</button> para ver aproveitamento por cor, rating e repertório.`;
+        identityBox.innerHTML = `Ainda não sei qual jogador é você. <button class="link-btn" data-open-settings>Defina seu nome nas Configurações</button> para ver aproveitamento por cor, rating e repertório.`;
         identityBox.classList.remove('hidden');
     } else {
         identityBox.classList.add('hidden');
@@ -512,7 +512,7 @@ function localRepertoire(stats) {
         lines.push(`Mantenha **${whiteBest.name}** (${whiteBest.eco}) como eixo: ${pctOrDash(whiteBest.pct)} em ${whiteBest.games} partida(s). `
             + 'Escolha uma segunda linha apenas para variar o ritmo.');
     } else {
-        lines.push('Ainda não há partidas suas com brancas identificadas. Defina seu nome nos Ajustes.');
+        lines.push('Ainda não há partidas suas com brancas identificadas. Defina seu nome nas Configurações.');
     }
 
     lines.push('');
@@ -558,24 +558,45 @@ async function generateInsights() {
         return;
     }
     if (State.aiBusy) return;
-    if (!State.ai.online) await checkAI(true);
+    const stats = Stats.compute(State.games, Settings.playerNameList());
+
+    // Privacidade primeiro: bloqueio ou recusa do usuário levam à leitura
+    // local determinística, sem nenhuma chamada externa.
+    let allowed = false;
+    if (!AI.isBlocked()) {
+        if (!State.ai.online) await checkAI(true);
+        allowed = !!State.ai.online && await AI.ensureConsent();
+    }
+
+    if (!allowed) {
+        const text = localInsights(stats.brief);
+        const record = { text, model: 'leitura local', createdAt: Date.now(), source: 'local' };
+        State.insights = record;
+        await DB.saveMeta('insights', record);
+        renderInsights();
+        toast(
+            AI.isBlocked()
+                ? 'Envio de dados à IA desativado. Gerei uma leitura local com os seus números.'
+                : 'Sem envio externo autorizado. Gerei uma leitura local com os seus números.',
+            'info'
+        );
+        return;
+    }
 
     State.aiBusy = true;
     setAIBusy(true);
-    const stats = Stats.compute(State.games, Settings.playerNameList());
     const box = $('insightsBox');
     const stream = streamTarget(box);
     const controller = new AbortController();
     State.aiController = controller;
 
     try {
-        if (!State.ai.online) throw new Error('Assistente indisponível.');
         const response = await AI.request(
             AI.insightsMessages(stats.brief),
             { onToken: stream.push, signal: controller.signal }
         );
         stream.finish();
-        const record = { text: response.text, model: AI.config().model, createdAt: Date.now(), source: 'ai' };
+        const record = { text: response.text, model: (State.ai && State.ai.model) || 'modelo do servidor', createdAt: Date.now(), source: 'ai' };
         State.insights = record;
         await DB.saveMeta('insights', record);
         renderInsights();
@@ -591,7 +612,7 @@ async function generateInsights() {
             State.insights = record;
             await DB.saveMeta('insights', record);
             renderInsights();
-            toast('Assistente indisponível; gerei uma leitura local a partir dos seus números.', 'warning');
+            toast(AI.describeError(error) + ' Gerei uma leitura local com os seus números.', 'warning');
         }
     } finally {
         State.aiBusy = false;
@@ -607,11 +628,31 @@ async function generateRepertoire() {
     }
     const stats = Stats.compute(State.games, Settings.playerNameList());
     if (!stats.identity.name) {
-        toast('Defina seu nome nos Ajustes para gerar um repertório por cor.', 'warning');
+        toast('Defina seu nome nas Configurações para gerar um repertório por cor.', 'warning');
         return;
     }
     if (State.aiBusy) return;
-    if (!State.ai.online) await checkAI(true);
+
+    let allowed = false;
+    if (!AI.isBlocked()) {
+        if (!State.ai.online) await checkAI(true);
+        allowed = !!State.ai.online && await AI.ensureConsent();
+    }
+
+    if (!allowed) {
+        const text = localRepertoire(stats);
+        const record = { text, model: 'leitura local', createdAt: Date.now(), source: 'local' };
+        State.repertoire = record;
+        await DB.saveMeta('repertoire', record);
+        renderRepertoire();
+        toast(
+            AI.isBlocked()
+                ? 'Envio de dados à IA desativado. Montei um repertório local com os seus resultados.'
+                : 'Sem envio externo autorizado. Montei um repertório local com os seus resultados.',
+            'info'
+        );
+        return;
+    }
 
     State.aiBusy = true;
     setAIBusy(true);
@@ -621,13 +662,12 @@ async function generateRepertoire() {
     State.aiController = controller;
 
     try {
-        if (!State.ai.online) throw new Error('Assistente indisponível.');
         const response = await AI.request(
             AI.repertoireMessages(stats.brief),
             { onToken: stream.push, signal: controller.signal }
         );
         stream.finish();
-        const record = { text: response.text, model: AI.config().model, createdAt: Date.now(), source: 'ai' };
+        const record = { text: response.text, model: (State.ai && State.ai.model) || 'modelo do servidor', createdAt: Date.now(), source: 'ai' };
         State.repertoire = record;
         await DB.saveMeta('repertoire', record);
         renderRepertoire();
@@ -642,7 +682,7 @@ async function generateRepertoire() {
             State.repertoire = record;
             await DB.saveMeta('repertoire', record);
             renderRepertoire();
-            toast('Assistente indisponível; montei um repertório local com os seus resultados.', 'warning');
+            toast(AI.describeError(error) + ' Montei um repertório local com os seus resultados.', 'warning');
         }
     } finally {
         State.aiBusy = false;
@@ -789,8 +829,8 @@ function bindAnalyticsEvents() {
 
     $('aiRefreshStatus').addEventListener('click', async () => {
         const result = await checkAI(false);
-        if (result.online) toast(`Assistente conectado. ${result.models.length} modelo(s) disponível(is).`, 'success');
-        else toast(result.error || 'Assistente indisponível.', 'error');
+        if (result.online) toast(`Treinador IA conectado a ${aiProviderLabel()}.`, 'success');
+        else toast(result.error || 'Treinador IA indisponível.', 'error');
     });
     $('genInsightsBtn').addEventListener('click', generateInsights);
     $('genRepertoireBtn').addEventListener('click', generateRepertoire);

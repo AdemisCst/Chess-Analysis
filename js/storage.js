@@ -169,21 +169,27 @@ const DB = (() => {
 })();
 
 const Settings = (() => {
+    // Chave legada preservada de propósito: renomear apagaria as preferências
+    // de quem já usa o aplicativo. O nome interno não aparece na interface.
     const KEY = 'acervo64_settings_v1';
     const DEFAULTS = {
-        theme: 'light',
+        theme: 'dark',
         playerNames: '',
         depth: 12,
         pageSize: 50,
         ai: {
-            // auto: Ollama no PC, proxy quando o site está publicado.
-            mode: 'auto',
-            baseUrl: 'http://localhost:11434',
+            // proxyUrl vazio usa a própria origem. O app nunca fala com
+            // localhost no site publicado.
             proxyUrl: '',
-            accessCode: '',
-            model: 'qwen2.5:3b',
+            model: '',
             temperature: 0.3,
             numCtx: 4096,
+            privacy: {
+                blocked: false,
+                consentVersion: '',
+                consentAt: 0,
+                provider: '',
+            },
         },
     };
     let cache = null;
@@ -198,6 +204,10 @@ const Settings = (() => {
         } catch (e) { stored = {}; }
         cache = Object.assign(clone(DEFAULTS), stored);
         cache.ai = Object.assign(clone(DEFAULTS.ai), stored.ai || {});
+        cache.ai.privacy = Object.assign(
+            clone(DEFAULTS.ai.privacy),
+            (stored.ai && stored.ai.privacy) || {}
+        );
         cache.depth = Number(cache.depth) || DEFAULTS.depth;
         cache.pageSize = Number(cache.pageSize) || DEFAULTS.pageSize;
         return cache;
@@ -209,6 +219,9 @@ const Settings = (() => {
         const current = load();
         const next = Object.assign({}, current, patch || {});
         if (patch && patch.ai) next.ai = Object.assign({}, current.ai, patch.ai);
+        if (patch && patch.ai && patch.ai.privacy) {
+            next.ai.privacy = Object.assign({}, current.ai.privacy, patch.ai.privacy);
+        }
         cache = next;
         try { localStorage.setItem(KEY, JSON.stringify(next)); } catch (e) { /* modo privado */ }
         return next;

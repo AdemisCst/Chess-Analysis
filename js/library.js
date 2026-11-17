@@ -696,7 +696,7 @@ async function exportGamesPgn(ids) {
         });
     });
     const pgn = games.map(game => PGN.serialize(game)).join('\n');
-    downloadFile(`acervo64-${todayStamp()}.pgn`, pgn, 'application/x-chess-pgn;charset=utf-8');
+    downloadFile(`chess-analysis-${todayStamp()}.pgn`, pgn, 'application/x-chess-pgn;charset=utf-8');
     toast(`${games.length} partida(s) exportada(s).`, 'success');
 }
 
@@ -709,12 +709,12 @@ async function exportJson() {
         DB.getAll('games'), DB.getAll('data'), DB.getAll('analysis'), DB.getAll('ai'), DB.getAll('meta'),
     ]);
     const payload = {
-        app: 'acervo64',
+        app: 'chess-analysis',
         version: 1,
         exportedAt: new Date().toISOString(),
         stores: { games, data, analysis, ai, meta },
     };
-    downloadFile(`acervo64-backup-${todayStamp()}.json`, JSON.stringify(payload, null, 2), 'application/json');
+    downloadFile(`chess-analysis-backup-${todayStamp()}.json`, JSON.stringify(payload, null, 2), 'application/json');
     toast('Backup completo gerado.', 'success');
 }
 
@@ -745,25 +745,6 @@ function bindLibraryEvents() {
         event.target.value = '';
     });
 
-    const dropZone = $('dropZone');
-    dropZone.addEventListener('click', () => $('fileInput').click());
-    dropZone.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            $('fileInput').click();
-        }
-    });
-    dropZone.addEventListener('dragover', event => {
-        event.preventDefault();
-        dropZone.classList.add('dragover');
-    });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', async event => {
-        event.preventDefault();
-        dropZone.classList.remove('dragover');
-        await handleFileList(event.dataTransfer.files);
-    });
-
     $('searchInput').addEventListener('input', debounce(event => {
         State.filters.tokens = tokenizeQuery(event.target.value);
         State.page = 0;
@@ -773,7 +754,7 @@ function bindLibraryEvents() {
     $('colorFilter').addEventListener('change', event => {
         const value = event.target.value;
         if (value && !identity().name) {
-            toast('Defina seu nome nos Ajustes para filtrar por cor.', 'warning');
+            toast('Defina seu nome nas Configurações para filtrar por cor.', 'warning');
             event.target.value = '';
             State.filters.color = '';
             return;

@@ -4,14 +4,14 @@
    avaliações em: anotação de cada lance, precisão, ACPL, gráfico, momentos-
    chave e fases da partida.
 
-   ANOTAÇÕES (nova versão):
+   ANOTAÇÕES (ordem visual oficial):
      !!  Brilhante       sacrifício correto ou grande virada, mantendo vantagem
+     !   Excelente       perda de até 2 pontos percentuais
      ★   Melhor          lance escolhido pelo Stockfish
+     👍  Ótimo           perda entre 2 e 9,9 pontos percentuais
+     ?   Erro            perda entre 10 e 29,9 pontos percentuais
      ×   Chance perdida  posição ganha que deixou de ser ganha, mas não perdida
      ??  Capivarada      perda de 30 pontos percentuais ou mais
-     ?   Erro            perda entre 10 e 29,9 pontos percentuais
-     !   Excelente       perda de até 2 pontos percentuais
-     👍  Ótimo           perda entre 2 e 9,9 pontos percentuais
 
    Os limiares ficam em constantes comentadas para calibração. A perda usada
    nas anotações é medida em PONTOS PERCENTUAIS de vitória (win%), não em
@@ -51,7 +51,7 @@ const Engine = (() => {
         good:      { key: 'good',      symbol: '👍', label: 'Ótimo', cls: 'good' },
     };
 
-    const ANNOTATION_ORDER = ['brilliant', 'best', 'missed', 'blunder', 'mistake', 'excellent', 'good'];
+    const ANNOTATION_ORDER = ['brilliant', 'excellent', 'best', 'good', 'mistake', 'missed', 'blunder'];
     const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 
     let worker = null;

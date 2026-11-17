@@ -1,29 +1,40 @@
 /* ========================================================================
    ARQUIVO: js/settings.js
-   DESCRIÇÃO: Tela de ajustes: perfil, modelo local, backups, análise em
-   lote e limpeza da biblioteca.
+   DESCRIÇÃO: Tela de configurações: perfil, privacidade da IA, backups,
+   análise em lote e limpeza da biblioteca.
    ======================================================================== */
 
 function fillSettingsForm() {
     const settings = Settings.get();
     $('playerNamesInput').value = settings.playerNames || '';
     $('depthSelect').value = String(settings.depth);
-    $('aiModeSelect').value = settings.ai.mode || 'auto';
-    $('aiEndpointInput').value = settings.ai.baseUrl;
-    $('aiProxyInput').value = settings.ai.proxyUrl || '';
-    $('aiCodeInput').value = settings.ai.accessCode || '';
-    $('aiModelInput').value = settings.ai.model;
+    if ($('aiBlockInput')) $('aiBlockInput').checked = !!(settings.ai.privacy && settings.ai.privacy.blocked);
     renderModelOptions();
+    renderConsentState();
+}
+
+function renderConsentState() {
+    const hint = $('aiConsentState');
+    if (!hint) return;
+    const privacy = AI.privacy();
+    if (privacy.blocked) {
+        hint.textContent = 'Envio bloqueado: nenhuma chamada externa será feita.';
+        return;
+    }
+    if (AI.hasConsent()) {
+        const date = privacy.consentAt ? new Date(privacy.consentAt).toLocaleString('pt-BR') : '';
+        hint.textContent = `Envio autorizado${privacy.provider ? ' para ' + privacy.provider : ''}${date ? ' em ' + date : ''}. A autorização vale para este navegador.`;
+        return;
+    }
+    hint.textContent = 'O primeiro envio pedirá sua autorização. Você pode recusar e continuar usando os recursos locais.';
 }
 
 function persistAIFromForm() {
-    const mode = $('aiModeSelect').value || 'auto';
-    const baseUrl = $('aiEndpointInput').value.trim() || 'http://localhost:11434';
-    const proxyUrl = $('aiProxyInput').value.trim().replace(/\/+$/, '');
-    const accessCode = $('aiCodeInput').value.trim();
-    const model = $('aiModelInput').value.trim() || 'qwen2.5:3b';
-    AI.setConfig({ mode, baseUrl, proxyUrl, accessCode, model });
-    return { mode, baseUrl, proxyUrl, accessCode, model };
+    const blocked = $('aiBlockInput') ? !!$('aiBlockInput').checked : false;
+    AI.savePrivacy({ blocked });
+    renderConsentState();
+    renderAIStatus();
+    return { blocked };
 }
 
 /* ===================== BACKUP ===================== */
@@ -31,20 +42,27 @@ async function restoreBackup(file) {
     try {
         const text = await readFileText(file);
         const payload = JSON.parse(text);
+        if (!payload || typeof payload !== 'object') throw new Error('O arquivo não contém um backup válido.');
         const stores = payload.stores || payload;
         const names = ['games', 'data', 'analysis', 'ai', 'meta'];
         const available = names.filter(name => Array.isArray(stores[name]));
         if (!available.includes('games')) {
-            toast('O arquivo não parece ser um backup do Acervo 64.', 'error');
+            toast('O arquivo não parece ser um backup do Chess-Analysis.', 'error');
             return;
+        }
+        if (payload.app && payload.app !== 'chess-analysis' && payload.app !== 'acervo64') {
+            toast('O backup tem uma origem desconhecida. A estrutura será validada antes de qualquer alteração.', 'warning');
         }
 
         const ok = await confirmAction(
             'Restaurar backup',
-            'Os registros do arquivo serão mesclados com a biblioteca atual. Partidas com o mesmo identificador serão substituídas. Continuar?',
+            'Os registros do arquivo serão mesclados com a biblioteca atual. Partidas com o mesmo identificador serão substituídas. Um backup do estado atual será baixado antes da mesclagem. Continuar?',
             'Restaurar'
         );
         if (!ok) return;
+
+        // Proteção explícita antes de mesclar: o estado atual vira um arquivo.
+        await exportJson();
 
         for (const name of available) {
             await DB.bulkPut(name, stores[name]);
@@ -57,7 +75,7 @@ async function restoreBackup(file) {
         await migrateAnalysisData(true);
         await loadAICache();
         fillSettingsForm();
-        toast('Backup restaurado.', 'success');
+        toast('Backup restaurado. O banco legado foi preservado e mesclado.', 'success');
     } catch (error) {
         toast('Falha ao restaurar: ' + error.message, 'error');
     }
@@ -232,31 +250,58 @@ function bindSettingsEvents() {
     });
 
     $('saveAiBtn').addEventListener('click', async () => {
-        persistAIFromForm();
+        const state = persistAIFromForm();
         toast('Configuração da IA salva.', 'success');
+        if (state.blocked) {
+            State.ai = { online: false, models: [], error: 'Envio de dados à IA desativado nas Configurações.', code: 'privacy_blocked' };
+            setAIStatus(false, 'IA externa desativada');
+            renderAIStatus();
+            return;
+        }
         await checkAI(true);
         renderAIStatus();
     });
 
+    $('aiBlockInput').addEventListener('change', event => {
+        AI.savePrivacy({ blocked: !!event.target.checked });
+        renderConsentState();
+        renderAIStatus();
+        if (event.target.checked) {
+            State.ai = { online: false, models: [], error: 'Envio de dados à IA desativado nas Configurações.', code: 'privacy_blocked' };
+            setAIStatus(false, 'IA externa desativada');
+            toast('Envio de dados à IA bloqueado.', 'info');
+        } else {
+            toast('Envio de dados à IA permitido. A autorização será pedida antes do primeiro envio.', 'info');
+            checkAI(true);
+        }
+    });
+
+    $('revokeConsentBtn').addEventListener('click', () => {
+        AI.savePrivacy({ consentVersion: '', consentAt: 0, provider: '' });
+        renderConsentState();
+        renderAIStatus();
+        toast('Autorização de envio revogada. O próximo uso pedirá autorização novamente.', 'info');
+    });
+
     $('testAiBtn').addEventListener('click', async () => {
-        const { model } = persistAIFromForm();
-        const cfg = AI.config();
-        const where = AI.useProxy() ? (cfg.proxyUrl || location.origin) : cfg.baseUrl;
+        const state = persistAIFromForm();
         const result = $('aiTestResult');
         result.className = 'test-result';
         result.textContent = 'Testando conexão…';
+        if (state.blocked) {
+            result.className = 'test-result error';
+            result.textContent = 'O envio de dados à IA está bloqueado nas Configurações.';
+            return;
+        }
         const status = await checkAI(true);
         if (!status.online) {
             result.className = 'test-result error';
             result.textContent = status.error || 'Não foi possível conectar.';
             return;
         }
-        const models = status.models.map(item => item.name);
-        const hasModel = models.includes(model);
         result.className = 'test-result ok';
-        result.textContent = hasModel
-            ? `Conectado em ${where}. Modelo ${model} disponível.`
-            : `Conectado em ${where}. O modelo ${model} não aparece na lista; se as respostas falharem, ajuste o modelo.`;
+        result.textContent = `Conectado a ${aiProviderLabel()}${status.model ? ' · modelo ' + status.model : ''}. `
+            + 'Nenhum dado de partida foi enviado neste teste.';
         renderAIStatus();
     });
 

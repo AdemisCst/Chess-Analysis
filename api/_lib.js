@@ -2,38 +2,40 @@
    ARQUIVO: api/_lib.js
    DESCRIÇÃO: Utilidades compartilhadas pelas funções da Vercel.
 
-   O proxy existe para que o site público possa usar um provedor de IA sem
-   expor a chave no navegador. Ele fala o mesmo contrato do Ollama
-   (`/api/chat` em NDJSON), então o aplicativo não precisa saber qual
-   provedor está atrás.
+   O proxy existe para que o site público use um provedor de IA sem expor a
+   chave no navegador. Ele fala o mesmo contrato do Ollama (`/api/chat` em
+   NDJSON), então o frontend não precisa saber qual provedor está atrás.
 
-   Variáveis de ambiente (todas configuradas na Vercel):
-     AI_PROVIDER=ollama|openai       padrão: ollama
-     AI_BASE_URL=https://...         obrigatória
-     AI_API_KEY=...                  chave do provedor
-     AI_MODEL=qwen2.5:3b             modelo usado no servidor
-     AI_FALLBACK_BASE_URL=...        opcional, segunda tentativa
-     AI_FALLBACK_API_KEY=...
-     AI_FALLBACK_MODEL=...
-     AI_ACCESS_MODE=code|ip          padrão: code
-     AI_ACCESS_CODES=ABC123,XYZ999   códigos distribuídos às pessoas
-     AI_DAILY_PER_USER=20            ações por pessoa por dia
-     AI_DAILY_GLOBAL=500             ações no total por dia
-     UPSTASH_REDIS_REST_URL=...      opcional, para cota/cache duráveis
+   Variáveis de ambiente (configuradas na Vercel):
+     AI_PROVIDER=openai               provedor compatível com OpenAI
+     AI_BASE_URL=https://...          obrigatória
+     AI_API_KEY=...                   chave real (nunca vai ao navegador)
+     AI_MODEL=deepseek-chat           modelo usado no servidor
+     AI_FALLBACK_*                    provedor de reserva opcional
+     AI_DAILY_PER_USER=20             ações por IP por dia
+     AI_DAILY_GLOBAL=500              ações no total por dia
+     UPSTASH_REDIS_REST_URL=...       opcional, para cota durável
      UPSTASH_REDIS_REST_TOKEN=...
+
+   Não existe mais código de acesso: a cota é aplicada por IP. A decisão está
+   documentada em docs/AUDITORIA-INICIAL.md e docs/ARQUITETURA-INTEGRACAO.md.
    ======================================================================== */
 
 export const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,X-Acervo-Code',
+    'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
 };
 
 export function json(data, status = 200) {
     return new Response(JSON.stringify(data), {
         status,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+        headers: {
+            ...CORS_HEADERS,
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store',
+        },
     });
 }
 
@@ -52,25 +54,17 @@ export function todayKey() {
     return new Date().toISOString().slice(0, 10);
 }
 
-/** Identidade usada na cota: código de acesso ou IP encaminhado pela Vercel. */
+/**
+ * Identidade usada na cota. Não há mais código de acesso: usamos o IP
+ * encaminhado pela Vercel. `unknown` é aceito para não derrubar a função em
+ * ambientes de teste, mas a cota global continua valendo.
+ */
 export function identityOf(request) {
-    const mode = (process.env.AI_ACCESS_MODE || 'code').toLowerCase();
-    const code = (request.headers.get('x-acervo-code') || '').trim();
-    if (mode === 'code') return code ? `code:${code}` : null;
-    const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
+    const ip = request.headers.get('x-forwarded-for')
+        || request.headers.get('x-real-ip')
+        || request.headers.get('cf-connecting-ip')
+        || 'unknown';
     return `ip:${ip.split(',')[0].trim()}`;
-}
-
-export function codeAllowed(request) {
-    const mode = (process.env.AI_ACCESS_MODE || 'code').toLowerCase();
-    if (mode !== 'code') return true;
-    const code = (request.headers.get('x-acervo-code') || '').trim();
-    if (!code) return false;
-    const allowed = String(process.env.AI_ACCESS_CODES || '')
-        .split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-    return allowed.includes(code);
 }
 
 /* ---------- Redis opcional (Upstash REST) ---------- */
@@ -96,7 +90,7 @@ async function redisPipeline(commands) {
 
 export async function incrementQuota(key, ttlSeconds) {
     const day = todayKey();
-    const fullKey = `acervo64:${key}:${day}`;
+    const fullKey = `chessanalysis:${key}:${day}`;
     const config = redisConfig();
     if (!config) {
         const current = (memory.get(fullKey) || 0) + 1;
@@ -143,12 +137,82 @@ export function providerConfig(prefix = 'AI') {
     const base = (process.env[`${prefix}_BASE_URL`] || '').replace(/\/+$/, '');
     if (!base) return null;
     return {
-        provider: (process.env[`${prefix}_PROVIDER`] || process.env.AI_PROVIDER || 'ollama').toLowerCase(),
+        provider: (process.env[`${prefix}_PROVIDER`] || process.env.AI_PROVIDER || 'openai').toLowerCase(),
         base,
         key: process.env[`${prefix}_API_KEY`] || '',
         model: process.env[`${prefix}_MODEL`] || process.env.AI_MODEL || '',
         path: process.env[`${prefix}_CHAT_PATH`] || '',
     };
+}
+
+/**
+ * Detecta valores de exemplo usados em documentação. Sem isso, o proxy
+ * repassaria "sua_chave..." ao provedor e o usuário veria apenas
+ * "Invalid API Key", sem saber que a configuração está incompleta.
+ */
+export function isPlaceholderKey(key) {
+    const value = String(key || '').trim();
+    if (value.length < 20) return true;
+    return /^(sua[_-]?|sk-substitua|coloque-a-chave|chave-de-reserva|exemplo|placeholder|troque)/i.test(value)
+        || value.includes('substitua')
+        || value.includes('coloque-a-chave');
+}
+
+/** Rótulo público do provedor (sem chave, sem caminho completo). */
+export function providerLabel(config) {
+    if (!config) return 'não configurado';
+    try {
+        return new URL(config.base).host;
+    } catch (error) {
+        return config.base;
+    }
+}
+
+/**
+ * Traduz a falha do provedor em uma mensagem segura. O detalhe bruto pode
+ * conter a chave ou instruções internas; por isso ele não é repassado.
+ */
+export function describeProviderError(status, provider) {
+    if (status === 401 || status === 403) {
+        return `O provedor (${provider}) rejeitou a credencial configurada no servidor. Confira AI_API_KEY na Vercel.`;
+    }
+    if (status === 404) {
+        return `O provedor (${provider}) não encontrou o modelo configurado. Confira AI_MODEL na Vercel.`;
+    }
+    if (status === 429) {
+        return `O provedor (${provider}) atingiu o limite de uso. Tente novamente mais tarde.`;
+    }
+    if (status === 400 || status === 422) {
+        return `O provedor (${provider}) recusou a requisição. Verifique o modelo e o tamanho do contexto.`;
+    }
+    if (status >= 500) {
+        return `O provedor (${provider}) está indisponível no momento (HTTP ${status}).`;
+    }
+    return `O provedor (${provider}) respondeu HTTP ${status}.`;
+}
+
+/** Valida o corpo de conversa antes de gastar cota. */
+export function validateMessages(body) {
+    if (!body || !Array.isArray(body.messages) || !body.messages.length) {
+        return 'Envie ao menos uma mensagem.';
+    }
+    if (body.messages.length > 24) {
+        return 'Histórico longo demais: envie no máximo 24 mensagens.';
+    }
+    let total = 0;
+    for (const message of body.messages) {
+        if (!message || typeof message.content !== 'string') {
+            return 'Cada mensagem precisa de conteúdo textual.';
+        }
+        if (message.role !== 'system' && message.role !== 'user' && message.role !== 'assistant') {
+            return 'Papel de mensagem inválido.';
+        }
+        total += message.content.length;
+    }
+    if (total > 60000) {
+        return 'Contexto grande demais: reduza o histórico ou o texto enviado.';
+    }
+    return null;
 }
 
 export function upstreamUrl(config) {
