@@ -1,6 +1,16 @@
+# Dependências e artefatos locais
 node_modules/
+
+# Vínculo local com a Vercel (contém IDs do projeto, não é segredo, mas não
+# precisa ser versionado)
 .vercel/
+
+# Variáveis de ambiente reais. O modelo .env.example É versionado de propósito,
+# para documentar a configuração sem expor chaves.
 .env
-.env.local
+.env.*
+!.env.example
+
+# Saídas locais
 generated_documents/
 *.log

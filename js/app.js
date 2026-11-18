@@ -253,16 +253,23 @@ function streamTarget(element) {
 }
 
 /* ===================== TEMA ===================== */
+/**
+ * O tema escuro é o padrão. A classe `light` é uma alternativa opcional;
+ * nunca dependemos da presença de `dark` para o tema principal.
+ */
 function applyTheme(theme) {
-    const dark = theme === 'dark';
-    document.body.classList.toggle('dark', dark);
+    const light = theme === 'light';
+    document.body.classList.toggle('light', light);
     const button = $('themeBtn');
-    if (button) button.textContent = dark ? '☀' : '🌙';
+    if (button) {
+        button.textContent = light ? '🌙' : '☀';
+        button.title = light ? 'Ativar tema escuro' : 'Ativar tema claro';
+    }
 }
 
 function toggleTheme() {
     const settings = Settings.get();
-    const next = settings.theme === 'dark' ? 'light' : 'dark';
+    const next = settings.theme === 'light' ? 'dark' : 'light';
     Settings.save({ theme: next });
     applyTheme(next);
 }
@@ -271,7 +278,15 @@ function toggleTheme() {
 function setView(name) {
     State.view = name;
     $$('.view').forEach(view => view.classList.toggle('active', view.id === 'view-' + name));
-    $$('.rail-btn').forEach(button => button.classList.toggle('active', button.dataset.view === name));
+
+    // Aberturas é auxiliar de Desempenho: mantém o item pai como ativo.
+    const railView = name === 'openings' ? 'stats' : name;
+    $$('.rail-btn').forEach(button => {
+        const active = button.dataset.view === railView;
+        button.classList.toggle('active', active);
+        if (active) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
+    });
 
     if (name === 'game') {
         $('noGame').classList.toggle('hidden', !!State.current);
@@ -283,33 +298,43 @@ function setView(name) {
     if (name === 'settings') fillSettingsForm();
 }
 
-/* ===================== STATUS DA IA ===================== */
+/* ===================== STATUS DA IA E PRIVACIDADE ===================== */
 function setAIStatus(online, text) {
     const chip = $('aiStatusChip');
+    if (!chip) return;
     chip.classList.remove('online', 'offline');
     chip.classList.add(online ? 'online' : 'offline');
-    $('aiStatusText').textContent = text;
+    const label = $('aiStatusText');
+    if (label) label.textContent = text;
 }
 
-/** Endereço efetivamente usado: Ollama local ou proxy do site. */
-function aiEndpointLabel() {
-    const cfg = AI.config();
-    return AI.useProxy() ? (cfg.proxyUrl || location.origin) : cfg.baseUrl;
+/** Rótulo público do provedor. Nunca mostramos localhost no site publicado. */
+function aiProviderLabel() {
+    const remote = State.ai || {};
+    if (remote.providerLabel) return remote.providerLabel;
+    return 'provedor externo';
 }
 
 async function checkAI(quiet) {
-    setAIStatus(false, 'Assistente: verificando…');
+    setAIStatus(false, 'Treinador IA: verificando…');
     const result = await AI.check();
     State.ai = result;
     if (result.online) {
-        setAIStatus(true, 'Assistente pronto');
-        const cfg = AI.config();
-        $('aiStatusChip').title = `Assistente conectado em ${aiEndpointLabel()} · modelo ${cfg.model}`;
+        setAIStatus(true, 'Treinador IA: pronto');
+        const chip = $('aiStatusChip');
+        if (chip) chip.title = `Conectado a ${aiProviderLabel()}${result.model ? ' · modelo ' + result.model : ''}`;
         renderModelOptions();
     } else {
-        setAIStatus(false, 'Assistente offline');
-        $('aiStatusChip').title = result.error || 'Assistente indisponível';
-        if (!quiet) toast('Assistente indisponível. Veja os Ajustes para configurar.', 'warning');
+        const blocked = result.code === 'privacy_blocked';
+        setAIStatus(false, blocked ? 'IA externa desativada' : 'Treinador IA: offline');
+        const chip = $('aiStatusChip');
+        if (chip) chip.title = result.error || 'Treinador IA indisponível';
+        if (!quiet) toast(
+            blocked
+                ? 'O envio de dados à IA está desativado nas Configurações.'
+                : 'Treinador IA indisponível. Abra Configurações para revisar o servidor.',
+            'warning'
+        );
     }
     renderAIStatus();
     return result;
@@ -323,27 +348,42 @@ function renderModelOptions() {
         .join('');
 }
 
+/**
+ * Indicador persistente da área Treinador IA. Explica o provedor externo, o
+ * consentimento e o motivo de uma eventual indisponibilidade — sem expor
+ * chaves, endereços internos ou prometer um assistente que não funciona.
+ */
 function renderAIStatus() {
-    const panel = $('aiStatusPanel');
-    if (!panel) return;
-    const cfg = AI.config();
-    const models = (State.ai.models || []).map(model => model.name);
-    const online = State.ai.online;
-    const viaProxy = AI.useProxy();
-    const guidance = viaProxy
-        ? `Confira o código de acesso na configuração avançada e se o assistente do site está configurado. O administrador vê os detalhes em <code>.env.example</code>.`
-        : `Abra o Ollama, rode <code>ollama pull ${escapeHtml(cfg.model)}</code> e clique em “Testar assistente”. Se o navegador bloquear, inicie o Ollama com <code>OLLAMA_ORIGINS=*</code>.`;
-    panel.innerHTML = `
-        <div class="row"><span>Status</span><strong style="color:${online ? 'var(--success)' : 'var(--danger)'}">${online ? 'Conectado' : 'Desconectado'}</strong></div>
-        <div class="row"><span>Onde roda</span><strong>${viaProxy ? 'Site publicado' : 'Neste computador'}</strong></div>
-        <div class="row"><span>Endereço</span><code>${escapeHtml(aiEndpointLabel())}</code></div>
-        <div class="row"><span>Modelo em uso</span><code>${escapeHtml(cfg.model)}</code></div>
-        <div class="row"><span>Modelos instalados</span><span>${models.length ? models.map(name => `<code>${escapeHtml(name)}</code>`).join(' ') : '—'}</span></div>
-        ${online ? '' : `<div class="row"><span>Como resolver</span><span class="small muted">${guidance}</span></div>`}
-    `;
-    if (!online && State.ai.error) {
-        panel.innerHTML += `<div class="row"><span>Detalhe</span><span class="small muted">${escapeHtml(State.ai.error)}</span></div>`;
+    const notice = $('aiPrivacyNotice');
+    if (!notice) return;
+    const privacy = AI.privacy();
+    const online = !!State.ai.online;
+    const consent = AI.hasConsent();
+    const provider = escapeHtml(aiProviderLabel());
+    const model = State.ai && State.ai.model ? escapeHtml(State.ai.model) : '';
+
+    if (privacy.blocked) {
+        notice.className = 'notice warning';
+        notice.innerHTML = '🌐 <strong>IA externa desativada.</strong> Nenhum dado sai deste navegador. '
+            + 'Biblioteca, Stockfish, estatísticas e PDF continuam funcionando. '
+            + 'Para reativar, abra <strong>Configurações → Treinador IA</strong>.';
+        return;
     }
+
+    if (online) {
+        notice.className = 'notice accent';
+        notice.innerHTML = `🌐 <strong>IA externa conectada</strong> · ${provider}${model ? ' · modelo ' + model : ''}. `
+            + (consent
+                ? 'Você autorizou o envio de dados minimizados (lances SAN, avaliações, abertura e resultado; sem nomes, usernames, URLs, evento ou local). '
+                : 'Você será consultado antes do primeiro envio. ')
+            + 'A chave do provedor fica somente no servidor.';
+        return;
+    }
+
+    notice.className = 'notice';
+    notice.innerHTML = `🌐 <strong>IA externa indisponível.</strong> ${escapeHtml(State.ai.error || 'O servidor não confirmou o assistente.')} `
+        + 'Biblioteca, Stockfish, estatísticas e PDF continuam funcionando. '
+        + 'Abra <strong>Configurações → Treinador IA</strong> para revisar.';
 }
 
 function setAIBusy(busy) {
@@ -353,10 +393,25 @@ function setAIBusy(busy) {
     });
 }
 
-async function requireAI() {
+/**
+ * Autorização completa antes de qualquer chamada externa:
+ * privacidade → disponibilidade → consentimento informado.
+ * Nunca simula funcionamento quando a IA está desligada.
+ */
+async function requireAI(options) {
+    const opts = options || {};
+    if (AI.isBlocked()) {
+        toast('O envio de dados à IA está desativado nas Configurações.', 'warning');
+        return false;
+    }
     if (!State.ai.online) await checkAI(true);
     if (!State.ai.online) {
-        toast('O assistente não está disponível. Confira os Ajustes para configurá-lo.', 'warning');
+        toast('O Treinador IA não está disponível. A biblioteca e a análise local continuam funcionando.', 'warning');
+        return false;
+    }
+    const allowed = await AI.ensureConsent();
+    if (!allowed) {
+        if (!opts.silentDeny) toast('Envio não autorizado. Nenhum dado foi enviado à IA.', 'info');
         return false;
     }
     return true;
@@ -394,7 +449,7 @@ async function loadAICache() {
 function aiRecordMeta(record) {
     if (!record) return '';
     const date = record.createdAt ? new Date(record.createdAt).toLocaleString('pt-BR') : '';
-    return `Gerado por ${record.model || 'assistente de IA'}${date ? ' em ' + date : ''}.`;
+    return `Gerado por ${record.model || 'Treinador IA'}${date ? ' em ' + date : ''}.`;
 }
 
 /* ===================== RELOAD GERAL ===================== */
@@ -414,6 +469,54 @@ function renderRailCount() {
 
 /* ===================== MIGRAÇÃO DAS ANÁLISES ===================== */
 /**
+ * Proveniência: análises gravadas antes desta tarefa não têm `engineBuild`.
+ * A migração grava o build inferido **no mesmo registro e na mesma chave**,
+ * sem tocar em posições, avaliações, resumos ou `version`. Análises do SF10
+ * continuam acessíveis e jamais são sobrescritas por uma reanálise, porque a
+ * análise nova usa `gameId@depth@build`.
+ *
+ * O marcador `analysisProvenanceMigration` evita repetir o trabalho. Ele é
+ * independente de `analysisMigration` (que reconstrói anotações v1).
+ */
+async function migrateAnalysisProvenance(force) {
+    if (!window.Engine || typeof Engine.buildOf !== 'function') return { updated: 0, summaries: 0, skipped: true };
+    const marker = await DB.getMeta('analysisProvenanceMigration').catch(() => null);
+    if (!force && marker && Number(marker.value) >= 1) return { updated: 0, summaries: 0, skipped: true };
+
+    let updated = 0;
+    const records = await DB.getAll('analysis').catch(() => []);
+    for (const record of records) {
+        if (record.engineBuild) continue;
+        const next = Object.assign({}, record, { engineBuild: Engine.buildOf(record) });
+        await DB.put('analysis', next);
+        updated++;
+    }
+
+    let summaries = 0;
+    for (const game of State.games) {
+        if (!game.analysisSummary) continue;
+        let changed = false;
+        if (!game.analysisSummary.engineBuild) {
+            const list = await DB.getByIndex('analysis', 'gameId', game.id).catch(() => []);
+            const best = (list || []).sort((a, b) => (b.depth - a.depth) || (b.createdAt - a.createdAt))[0];
+            game.analysisSummary.engineBuild = Engine.buildOf(best || game.analysisSummary);
+            changed = true;
+        }
+        if (game.analyzedBuild !== game.analysisSummary.engineBuild) {
+            game.analyzedBuild = game.analysisSummary.engineBuild;
+            changed = true;
+        }
+        if (changed) {
+            await DB.put('games', game);
+            summaries++;
+        }
+    }
+
+    await DB.saveMeta('analysisProvenanceMigration', 1).catch(() => {});
+    return { updated, summaries, skipped: false };
+}
+
+/**
  * Análises geradas antes da versão 2 não têm anotações (!!, ★, ×, ??, ?,
  * !, 👍), ACPL nem precisão por fase. Como as posições do Stockfish já estão
  * salvas, é possível reconstruir tudo sem reanalisar nenhuma partida.
@@ -423,6 +526,8 @@ function renderRailCount() {
  */
 async function migrateAnalysisData(force) {
     if (!window.Engine || typeof Engine.enrichAnalysis !== 'function') return { updated: 0, skipped: true };
+    // Reprocessar análises também reaplica a proveniência, sem alterar chaves.
+    if (force) await migrateAnalysisProvenance(true);
     const marker = await DB.getMeta('analysisMigration').catch(() => null);
     if (!force && marker && Number(marker.value) >= 3) return { updated: 0, skipped: true };
 
@@ -444,6 +549,7 @@ async function migrateAnalysisData(force) {
             if (analysisChanged) {
                 await DB.saveAnalysis(enriched);
                 game.analysisSummary = enriched.summary;
+                game.analyzedBuild = Engine.buildOf(enriched);
             }
             await DB.put('games', game);
             updated++;
@@ -525,7 +631,8 @@ async function init() {
         await DB.open();
         await Openings.load().catch(() => []);
         await reloadGames();
-        // Reaproveita análises antigas antes de desenhar estatísticas.
+        // Primeiro carimba a proveniência; depois reaproveita análises antigas.
+        await migrateAnalysisProvenance(false);
         await migrateAnalysisData(false);
     } catch (error) {
         toast('Não foi possível abrir o banco local: ' + error.message, 'error');

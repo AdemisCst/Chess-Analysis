@@ -135,16 +135,50 @@ const DB = (() => {
     }
 
     /* ---------- atalhos para análise e IA ---------- */
-    function analysisKey(gameId, depth) { return `${gameId}@${depth}`; }
-
-    async function getAnalysis(gameId) {
-        const list = await getByIndex('analysis', 'gameId', gameId);
-        if (!list || !list.length) return null;
-        return list.sort((a, b) => (b.depth - a.depth) || (b.createdAt - a.createdAt))[0];
+    /**
+     * Chave de uma análise. O build entra na chave para que uma análise do
+     * SF10 (`gameId@depth`) e uma do SF19 (`gameId@depth@build`) coexistam:
+     * reanalisar nunca sobrescreve o resultado antigo. Sem o terceiro
+     * argumento, a forma legada é preservada.
+     */
+    function analysisKey(gameId, depth, build) {
+        const base = `${gameId}@${depth}`;
+        return build ? `${base}@${build}` : base;
     }
 
+    /**
+     * Análise de `gameId`, preferindo o build informado (por padrão, o build
+     * atual do motor). Se não houver nenhuma do build atual, devolve a melhor
+     * análise legada — o chamador avisa que ela veio de outro motor. Nunca
+     * mistura registros: a escolha é sempre por build inteiro.
+     */
+    async function getAnalysis(gameId, build) {
+        const list = await getByIndex('analysis', 'gameId', gameId);
+        if (!list || !list.length) return null;
+        const wanted = build !== undefined
+            ? build
+            : (typeof Engine !== 'undefined' && Engine.BUILD_ID ? Engine.BUILD_ID : null);
+        const preferred = wanted
+            ? list.filter(record => (record.engineBuild || record.build || '') === wanted)
+            : [];
+        const pool = preferred.length ? preferred : list;
+        return pool.sort((a, b) => (b.depth - a.depth) || (b.createdAt - a.createdAt))[0];
+    }
+
+    async function getAnalyses(gameId) {
+        const list = await getByIndex('analysis', 'gameId', gameId);
+        return (list || []).sort((a, b) => (b.depth - a.depth) || (b.createdAt - a.createdAt));
+    }
+
+    /**
+     * Grava sem trocar chave existente: o enriquecimento de uma análise antiga
+     * deve continuar no mesmo registro. Análises novas recebem a chave com o
+     * build (`gameId@depth@build`), que não colide com a forma legada.
+     */
     async function saveAnalysis(record) {
-        record.key = analysisKey(record.gameId, record.depth);
+        if (!record.key) {
+            record.key = analysisKey(record.gameId, record.depth, record.engineBuild || record.build);
+        }
         await put('analysis', record);
         return record;
     }
@@ -164,26 +198,32 @@ const DB = (() => {
 
     return {
         open, get, getAll, put, del, clear, count, bulkPut, getByIndex, deleteGame, clearAll,
-        getAnalysis, saveAnalysis, getAI, saveAI, getMeta, saveMeta, analysisKey,
+        getAnalysis, getAnalyses, saveAnalysis, getAI, saveAI, getMeta, saveMeta, analysisKey,
     };
 })();
 
 const Settings = (() => {
+    // Chave legada preservada de propósito: renomear apagaria as preferências
+    // de quem já usa o aplicativo. O nome interno não aparece na interface.
     const KEY = 'acervo64_settings_v1';
     const DEFAULTS = {
-        theme: 'light',
+        theme: 'dark',
         playerNames: '',
         depth: 12,
         pageSize: 50,
         ai: {
-            // auto: Ollama no PC, proxy quando o site está publicado.
-            mode: 'auto',
-            baseUrl: 'http://localhost:11434',
+            // proxyUrl vazio usa a própria origem. O app nunca fala com
+            // localhost no site publicado.
             proxyUrl: '',
-            accessCode: '',
-            model: 'qwen2.5:3b',
+            model: '',
             temperature: 0.3,
             numCtx: 4096,
+            privacy: {
+                blocked: false,
+                consentVersion: '',
+                consentAt: 0,
+                provider: '',
+            },
         },
     };
     let cache = null;
@@ -198,6 +238,10 @@ const Settings = (() => {
         } catch (e) { stored = {}; }
         cache = Object.assign(clone(DEFAULTS), stored);
         cache.ai = Object.assign(clone(DEFAULTS.ai), stored.ai || {});
+        cache.ai.privacy = Object.assign(
+            clone(DEFAULTS.ai.privacy),
+            (stored.ai && stored.ai.privacy) || {}
+        );
         cache.depth = Number(cache.depth) || DEFAULTS.depth;
         cache.pageSize = Number(cache.pageSize) || DEFAULTS.pageSize;
         return cache;
@@ -209,6 +253,9 @@ const Settings = (() => {
         const current = load();
         const next = Object.assign({}, current, patch || {});
         if (patch && patch.ai) next.ai = Object.assign({}, current.ai, patch.ai);
+        if (patch && patch.ai && patch.ai.privacy) {
+            next.ai.privacy = Object.assign({}, current.ai.privacy, patch.ai.privacy);
+        }
         cache = next;
         try { localStorage.setItem(KEY, JSON.stringify(next)); } catch (e) { /* modo privado */ }
         return next;

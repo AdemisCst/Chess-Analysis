@@ -261,6 +261,7 @@ const PGN = (() => {
                 aiTags: [],
                 analysisSummary: null,
                 analyzedDepth: null,
+                analyzedBuild: null,
                 parseErrors: gameErrors,
                 hasVariationsOrComments: /[{(;]/.test(chunk.moveLines.join('\n')),
             };

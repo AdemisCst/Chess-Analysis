@@ -1,12 +1,47 @@
 /* ========================================================================
    ARQUIVO: style.css
-   PROJETO: Chess Analysis — Organizador de partidas de xadrez
-   DESCRIÇÃO: Estilos, tema claro/escuro e responsividade.
-   Altere as cores principais nas variáveis de :root e body.dark.
+   PROJETO: Chess-Analysis
+   DESCRIÇÃO: Estilos, tema escuro padrão (grafite/azul-marinho + verde),
+   tema claro opcional e responsividade.
+   Altere as cores principais em :root (escuro) e body.light (claro).
    ======================================================================== */
 
 /* ===================== 01 - VARIÁVEIS DE TEMA ===================== */
 :root {
+    --bg: #0b1220;
+    --bg-card: #111b2e;
+    --bg-soft: #17233a;
+    --bg-soft-2: #20304d;
+    --text: #e6edf7;
+    --text-muted: #93a3ba;
+    --border: #22314a;
+    --border-strong: #35455f;
+    --accent: #22c55e;
+    --accent-hover: #4ade80;
+    --accent-soft: #123524;
+    --success: #22c55e;
+    --success-soft: #12351f;
+    --danger: #f87171;
+    --danger-soft: #3a1414;
+    --warning: #fbbf24;
+    --warning-soft: #36280b;
+    --draw: #94a3b8;
+    --board-light: #cfd8c5;
+    --board-dark: #6f8a62;
+    --board-hl: rgba(255, 214, 0, 0.38);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
+    --radius: 14px;
+    --radius-sm: 9px;
+    --font: 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: 'Cascadia Mono', Consolas, 'SFMono-Regular', ui-monospace, monospace;
+    --header-h: 66px;
+    --rail-w: 88px;
+    --board-size: min(56vh, 520px);
+}
+
+body.light {
     --bg: #f3f5f9;
     --bg-card: #ffffff;
     --bg-soft: #eef1f6;
@@ -15,9 +50,9 @@
     --text-muted: #667085;
     --border: #e1e6ee;
     --border-strong: #cfd6e2;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --accent-soft: #dbeafe;
+    --accent: #16a34a;
+    --accent-hover: #15803d;
+    --accent-soft: #dcfce7;
     --success: #15803d;
     --success-soft: #dcfce7;
     --danger: #dc2626;
@@ -31,40 +66,6 @@
     --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
     --shadow: 0 6px 20px rgba(16, 24, 40, 0.08);
     --shadow-lg: 0 18px 48px rgba(16, 24, 40, 0.18);
-    --radius: 14px;
-    --radius-sm: 9px;
-    --font: 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
-    --font-mono: 'Cascadia Mono', Consolas, 'SFMono-Regular', ui-monospace, monospace;
-    --header-h: 66px;
-    --rail-w: 88px;
-    --board-size: min(56vh, 520px);
-}
-
-body.dark {
-    --bg: #0e1524;
-    --bg-card: #172033;
-    --bg-soft: #1d2940;
-    --bg-soft-2: #26344f;
-    --text: #e6edf7;
-    --text-muted: #96a3b8;
-    --border: #27344a;
-    --border-strong: #35455f;
-    --accent: #5b9cff;
-    --accent-hover: #7db2ff;
-    --accent-soft: #1c3358;
-    --success: #4ade80;
-    --success-soft: #12351f;
-    --danger: #f87171;
-    --danger-soft: #3a1414;
-    --warning: #fbbf24;
-    --warning-soft: #36280b;
-    --draw: #94a3b8;
-    --board-light: #cfd8c5;
-    --board-dark: #6f8a62;
-    --board-hl: rgba(255, 214, 0, 0.38);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-    --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.55);
 }
 
 /* ===================== 02 - BASE ===================== */
@@ -78,8 +79,8 @@ body {
     line-height: 1.45;
     transition: background 0.2s ease, color 0.2s ease;
 }
-body { color-scheme: light; }
-body.dark { color-scheme: dark; }
+body { color-scheme: dark; }
+body.light { color-scheme: light; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
@@ -121,6 +122,23 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 }
 .muted { color: var(--text-muted); }
 .small { font-size: 0.85rem; }
+
+/* Aviso discreto de proveniência (análise feita com motor antigo). */
+.analysis-engine-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warning);
+    border-radius: var(--radius-sm);
+    background: var(--warning-soft);
+    color: var(--text);
+    font-size: 0.82rem;
+}
+.analysis-engine-note .link-btn { margin: 0; }
 .danger { color: var(--danger); border-color: var(--danger); }
 .danger:hover { background: var(--danger-soft); }
 .span-2 { grid-column: span 2; }
@@ -149,7 +167,7 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
     width: 40px; height: 40px;
     display: grid; place-items: center;
     border-radius: 12px;
-    background: linear-gradient(145deg, var(--accent), #7c3aed);
+    background: linear-gradient(145deg, #22c55e, #0d9488);
     color: #fff;
     font-size: 1.45rem;
     box-shadow: var(--shadow);
@@ -284,6 +302,8 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 .hint { font-size: 0.76rem; color: var(--text-muted); margin-top: 5px; }
 .stack-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .inline-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.check-row { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; font-size: 0.84rem; line-height: 1.45; cursor: pointer; }
+.check-row input { margin-top: 3px; accent-color: var(--accent); flex: none; }
 .test-result { font-size: 0.82rem; margin-top: 10px; min-height: 18px; }
 .test-result.ok { color: var(--success); }
 .test-result.error { color: var(--danger); }
@@ -353,21 +373,6 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 .games-table .col-check { width: 30px; text-align: center; }
 .games-table .row-check, #selectAllGames { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
 .import-report ul { margin: 6px 0 0 18px; }
-
-.dropzone {
-    border: 2px dashed var(--border-strong);
-    border-radius: var(--radius);
-    padding: 22px;
-    text-align: center;
-    background: color-mix(in srgb, var(--bg-card) 60%, transparent);
-    transition: border-color 0.15s, background 0.15s;
-    margin-bottom: 14px;
-    cursor: pointer;
-}
-.dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: var(--accent-soft); }
-.drop-icon { font-size: 1.8rem; color: var(--accent); display: block; line-height: 1; margin-bottom: 4px; }
-.dropzone p { font-size: 0.9rem; }
-.dropzone small { color: var(--text-muted); font-size: 0.76rem; }
 
 .table-panel { padding: 0; overflow: hidden; }
 .table-scroll { overflow-x: auto; }
@@ -686,21 +691,21 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
     line-height: 1;
     letter-spacing: -0.02em;
 }
-.ann-brilliant { color: #9333ea; }
+.ann-brilliant { color: #c084fc; }
 .ann-best { color: var(--success); }
-.ann-missed { color: #c2410c; }
+.ann-missed { color: #fdba74; }
 .ann-blunder { color: var(--danger); }
 .ann-mistake { color: var(--warning); }
 .ann-excellent { color: var(--success); }
 .ann-good { color: var(--text-muted); }
-body.dark .ann-brilliant { color: #c084fc; }
-body.dark .ann-missed { color: #fdba74; }
+body.light .ann-brilliant { color: #9333ea; }
+body.light .ann-missed { color: #c2410c; }
 
 .move-btn .ann-symbol { margin-left: 2px; }
 .move-btn.ann-blunder { color: var(--danger); font-weight: 700; }
 .move-btn.ann-mistake, .move-btn.ann-missed { color: var(--warning); font-weight: 600; }
-.move-btn.ann-brilliant { color: #9333ea; font-weight: 700; }
-body.dark .move-btn.ann-brilliant { color: #c084fc; }
+.move-btn.ann-brilliant { color: #c084fc; font-weight: 700; }
+body.light .move-btn.ann-brilliant { color: #9333ea; }
 .move-btn.ann-best, .move-btn.ann-excellent { color: var(--success); font-weight: 600; }
 
 .side-tags { display: flex; flex-direction: column; gap: 8px; }
