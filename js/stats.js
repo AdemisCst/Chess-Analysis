@@ -161,6 +161,7 @@ const Stats = (() => {
         const phaseBrilliants = { opening: 0, middlegame: 0, endgame: 0 };
         const phaseBrilliantsUser = { opening: 0, middlegame: 0, endgame: 0 };
         const opponentElos = [];
+        let otherEngine = 0;
 
         games.forEach(game => {
             resultCounts[game.result] = (resultCounts[game.result] || 0) + 1;
@@ -212,59 +213,68 @@ const Stats = (() => {
 
             if (game.analysisSummary) {
                 const summary = game.analysisSummary;
-                if (summary.phaseBlunders) {
-                    phases.opening += summary.phaseBlunders.opening || 0;
-                    phases.middlegame += summary.phaseBlunders.middlegame || 0;
-                    phases.endgame += summary.phaseBlunders.endgame || 0;
-                }
-                if (summary.accuracyW != null) accuracy.w.push(summary.accuracyW);
-                if (summary.accuracyB != null) accuracy.b.push(summary.accuracyB);
+                const summaryBuild = summary.engineBuild
+                    || (window.Engine && typeof Engine.buildOf === 'function' ? Engine.buildOf(summary) : '');
+                const currentBuild = window.Engine ? Engine.BUILD_ID : summaryBuild;
+                if (summaryBuild && summaryBuild !== currentBuild) {
+                    // Precisão, ACPL e contagens de outro motor não entram nas
+                    // médias: seriam números de metodologias diferentes.
+                    otherEngine++;
+                } else {
+                    if (summary.phaseBlunders) {
+                        phases.opening += summary.phaseBlunders.opening || 0;
+                        phases.middlegame += summary.phaseBlunders.middlegame || 0;
+                        phases.endgame += summary.phaseBlunders.endgame || 0;
+                    }
+                    if (summary.accuracyW != null) accuracy.w.push(summary.accuracyW);
+                    if (summary.accuracyB != null) accuracy.b.push(summary.accuracyB);
 
-                // Precisão e ACPL do dono do acervo contra os adversários.
-                if (color) {
-                    const opponent = color === 'w' ? 'b' : 'w';
-                    const userAccuracy = color === 'w' ? summary.accuracyW : summary.accuracyB;
-                    const oppAccuracy = color === 'w' ? summary.accuracyB : summary.accuracyW;
-                    const userAcpl = color === 'w' ? summary.acplW : summary.acplB;
-                    const oppAcpl = color === 'w' ? summary.acplB : summary.acplW;
-                    if (userAccuracy != null) precision.userAccuracy.push(userAccuracy);
-                    if (oppAccuracy != null) precision.opponentAccuracy.push(oppAccuracy);
-                    if (userAcpl != null) precision.userAcpl.push(userAcpl);
-                    if (oppAcpl != null) precision.opponentAcpl.push(oppAcpl);
+                    // Precisão e ACPL do dono do acervo contra os adversários.
+                    if (color) {
+                        const opponent = color === 'w' ? 'b' : 'w';
+                        const userAccuracy = color === 'w' ? summary.accuracyW : summary.accuracyB;
+                        const oppAccuracy = color === 'w' ? summary.accuracyB : summary.accuracyW;
+                        const userAcpl = color === 'w' ? summary.acplW : summary.acplB;
+                        const oppAcpl = color === 'w' ? summary.acplB : summary.acplW;
+                        if (userAccuracy != null) precision.userAccuracy.push(userAccuracy);
+                        if (oppAccuracy != null) precision.opponentAccuracy.push(oppAccuracy);
+                        if (userAcpl != null) precision.userAcpl.push(userAcpl);
+                        if (oppAcpl != null) precision.opponentAcpl.push(oppAcpl);
 
-                    if (summary.phaseAccuracy) {
-                        ['opening', 'middlegame', 'endgame'].forEach(phase => {
-                            const entry = summary.phaseAccuracy[phase];
-                            if (!entry) return;
-                            if (entry[color] != null) precision.phase[phase].user.push(entry[color]);
-                            if (entry[opponent] != null) precision.phase[phase].opponent.push(entry[opponent]);
-                        });
-                    }
+                        if (summary.phaseAccuracy) {
+                            ['opening', 'middlegame', 'endgame'].forEach(phase => {
+                                const entry = summary.phaseAccuracy[phase];
+                                if (!entry) return;
+                                if (entry[color] != null) precision.phase[phase].user.push(entry[color]);
+                                if (entry[opponent] != null) precision.phase[phase].opponent.push(entry[opponent]);
+                            });
+                        }
 
-                    if (summary.phaseBrilliantsByColor) {
-                        const own = summary.phaseBrilliantsByColor[color] || {};
-                        ['opening', 'middlegame', 'endgame'].forEach(phase => {
-                            phaseBrilliantsUser[phase] += Number(own[phase]) || 0;
-                        });
-                    }
-                    if (summary.phaseBrilliants) {
-                        ['opening', 'middlegame', 'endgame'].forEach(phase => {
-                            phaseBrilliants[phase] += Number(summary.phaseBrilliants[phase]) || 0;
-                        });
-                    }
-                    if (summary.counts) {
-                        addAnnotations(annotations.user, summary.counts[color]);
-                        addAnnotations(annotations.opponent, summary.counts[opponent]);
-                    }
-                    if (userAccuracy != null && (game.dateISO || game.year)) {
-                        precision.series.push({
-                            date: game.dateISO || `${game.year}-01-01`,
-                            accuracy: userAccuracy,
-                            gameId: game.id,
-                            opponent: color === 'w' ? game.black : game.white,
-                            result: game.result,
-                            color,
-                        });
+                        if (summary.phaseBrilliantsByColor) {
+                            const own = summary.phaseBrilliantsByColor[color] || {};
+                            ['opening', 'middlegame', 'endgame'].forEach(phase => {
+                                phaseBrilliantsUser[phase] += Number(own[phase]) || 0;
+                            });
+                        }
+                        if (summary.phaseBrilliants) {
+                            ['opening', 'middlegame', 'endgame'].forEach(phase => {
+                                phaseBrilliants[phase] += Number(summary.phaseBrilliants[phase]) || 0;
+                            });
+                        }
+                        if (summary.counts) {
+                            addAnnotations(annotations.user, summary.counts[color]);
+                            addAnnotations(annotations.opponent, summary.counts[opponent]);
+                        }
+                        if (userAccuracy != null && (game.dateISO || game.year)) {
+                            precision.series.push({
+                                date: game.dateISO || `${game.year}-01-01`,
+                                accuracy: userAccuracy,
+                                gameId: game.id,
+                                opponent: color === 'w' ? game.black : game.white,
+                                result: game.result,
+                                color,
+                            });
+                        }
                     }
                 }
             }
@@ -367,6 +377,7 @@ const Stats = (() => {
             phases,
             accuracy: { w: avg(accuracy.w), b: avg(accuracy.b) },
             precision: precisionResult,
+            otherEngine,
             annotations,
             brilliantPhases,
             opponentRating,

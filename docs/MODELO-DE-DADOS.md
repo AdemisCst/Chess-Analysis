@@ -1,10 +1,12 @@
 # Modelo de dados — Chess-Analysis
 
-**Versão:** 1.1 — Fase 2 (contrato de WDL)  
+**Versão:** 1.2 — Fase 2 (proveniência e WDL no cálculo)  
 **Atualizado em:** 17/11/2026  
 **Estado:** contratos documentados; persistência de `PlayerIdentity` fica para a
-Fase 5. O campo `wdl` e a `version: 3` da análise estão **documentados e ainda
-não implementados**.
+Fase 5. O `wdl`, a `version: 3`, a chave `gameId@depth@build` e a migração de
+proveniência estão **implementados** (Tarefa 2). As **7 categorias atuais estão
+aprovadas**; as 3 categorias restantes (Grande Lance, Livro, Bom) estão
+**deferidas** para a Fase 2.5/5 — ver §3.2.
 
 Este documento descreve as estruturas **realmente usadas** hoje e os contratos
 previstos. Onde a estrutura ainda não existe no código, o texto indica isso.
@@ -46,8 +48,9 @@ Chave: `id`.
 | `tags` | string[] | tags livres do usuário |
 | `aiTags` | string[] | tags sugeridas pela IA |
 | `sideTags` | object | tags calculadas por lado |
-| `analysisSummary` | object \| null | resumo numérico da análise salva |
+| `analysisSummary` | object \| null | resumo numérico da análise salva; inclui `engineBuild` e `scoreSource` |
 | `analyzedDepth` | number | maior profundidade concluída |
+| `analyzedBuild` | string \| null | build da última análise; diferente de `Engine.BUILD_ID` marca necessidade de reanálise |
 | `copyOf` | string | presente apenas em cópias |
 
 ### 2.2. Dados da partida (`data`)
@@ -67,15 +70,25 @@ relatório e a IA não podem exibir variantes do PGN nesta versão.
 
 ### 2.3. Análise (`analysis`)
 
-Chave: `key = gameId@depth`; índice `gameId`.
+Chave: `key = gameId@depth@engineBuild` nas análises novas; `key = gameId@depth`
+nas análises anteriores à Tarefa 2 (preservadas como estão). Índice `gameId`.
+
+O build **entra na chave** de propósito: duas análises da mesma partida na mesma
+profundidade, uma do SF10 e outra do SF19, são registros distintos e coexistem.
+Uma reanálise nunca sobrescreve o resultado anterior. A função canônica é
+`DB.analysisKey(gameId, depth, build)`; quando `build` é omitido, ela devolve a
+forma legada `gameId@depth`.
 
 | Campo | Tipo | Observação |
 |---|---|---|
 | `gameId` | string | |
 | `depth` | number | profundidade solicitada |
-| `version` | number | `2` hoje, inclusive com `wdl` bruto; `3` quando o win% passar a derivar do WDL (§2.3.1) |
+| `version` | number | `2` = win% pela curva sobre `cp`; `3` = win% derivado do WDL (§2.3.1) |
 | `engine` | string | rótulo de exibição; o motor atual grava “Stockfish 19 Lite WASM” |
 | `engineId` | string \| null | opcional; linha `id name` devolvida pelo UCI. Ausente nas análises antigas |
+| `engineBuild` | string | identidade estável do build: `stockfish-19-lite-single` ou `stockfish-10-legacy`/`legacy-unknown`. Entra na `key` e no `summary` |
+| `scoreSource` | `wdl` \| `cp` | fonte usada no **array inteiro** de `winPctWhite`. Nunca misturada por posição |
+| `wdlCoverage` | object | `{complete, evaluated, present, missing, invalid}` — diagnóstico da escolha da fonte |
 | `positions` | array | `{cp, mate, depth, best, pv, wdl?}` por posição |
 | `moves` | array | classificação por meia-jogada |
 | `winPctWhite` | number[] | 0–100 |
@@ -85,7 +98,7 @@ Chave: `key = gameId@depth`; índice `gameId`.
 | `phaseAccuracy` | object | abertura/meio-jogo/final |
 | `phaseBlunders`, `phaseBrilliants` | object | |
 | `keyMoments` | array | até 8 momentos críticos |
-| `summary` | object | cópia compacta para a biblioteca |
+| `summary` | object | cópia compacta para a biblioteca; inclui `engineBuild` e `scoreSource` |
 | `createdAt` | number | |
 
 Cada item de `moves` contém: `loss` (pontos percentuais), `cpLoss`,
@@ -137,36 +150,52 @@ indica que veio da curva logística sobre `cp`.
 | `version` | Conteúdo | Leitura |
 |---|---|---|
 | `1` | `positions` + `winPctWhite`, sem `moves` anotados | Reconstruída por `Engine.enrichAnalysis` |
-| `2` | Acrescenta `moves`, `accuracy`, `acpl`, `counts`, fases e momentos; win% pela curva logística. Desde a Tarefa 1 pode carregar `positions[i].wdl` bruto | Estado atual |
-| `3` | `version: 2` + `positions[i].wdl` e `engineId` | **Previsto**; ausência de `wdl` cai na curva da v2 |
+| `2` | Acrescenta `moves`, `accuracy`, `acpl`, `counts`, fases e momentos; win% pela curva logística. Pode carregar `positions[i].wdl` bruto | Fonte `cp`. Análises antigas **permanecem** v2 |
+| `3` | `version: 2` + `scoreSource: 'wdl'` + `wdlCoverage`; win% derivado do WDL | Implementada na Tarefa 2 para análises novas com WDL completo |
 
-Regras de migração:
+Regras de migração e leitura:
 
 - A ausência de `wdl` **não** é erro: significa “usar a curva logística”.
-- Não regravar análises antigas apenas para preencher `wdl`.
-- `enrichAnalysis` não pode inventar `wdl` nem elevar `version` sem executar o
-  motor com WDL.
+- A fonte é decidida **por análise**: se qualquer posição não terminal não tiver
+  WDL válido, a análise inteira fica em v2 com a curva sobre `cp`
+  (`scoreSource: 'cp'`). Não se mistura WDL e cp posição a posição.
+- Posições terminais ficam fora da exigência de WDL (`depth 0`, sem `best`/`pv`,
+  com `mate`/`cp`), porque o SF19 não envia WDL nelas. O mate continua
+  prioritário no Expected Score.
+- Não se regrava análise antiga apenas para preencher `wdl`.
+- `enrichAnalysis` não inventa `wdl`, não eleva `version` e preserva `engine`,
+  `engineId`, `engineBuild`, `scoreSource` e `key` originais. Se reconstruir uma
+  análise v2, recalcula com a curva de `cp` mesmo que exista `wdl` gravado.
 - Uma análise v3 pode ser lida por código que ignore `wdl` sem perder dados.
 
-#### 2.3.3. Proveniência — bloqueador de deploy
+#### 2.3.3. Proveniência e migração (resolvido na Tarefa 2)
 
-A chave `key = gameId@depth` **não identifica o motor**. Consequências
-verificadas no código atual:
+Antes da Tarefa 2 a chave `gameId@depth` não identificava o motor: `getAnalysis`
+devolvia a análise de maior profundidade de qualquer build, `buildAnalysis`
+carimbava o `engineId` atual ao reconstruir v1 e `analysisSummary` misturava
+motores nas médias. A solução implementada cobre os seis pontos exigidos:
 
-- `DB.getAnalysis(gameId)` devolve a análise de maior profundidade, de
-  qualquer motor;
-- `enrichAnalysis` devolve a v2 intacta, então uma análise do SF10 continua
-  válida e pode ser exibida como se fosse do SF19;
-- ao reconstruir uma análise v1, `buildAnalysis` carimba o `engineId` **atual**
-  do navegador, atribuindo SF19 a posições do SF10;
-- `game.analysisSummary` (Desempenho, Aberturas e IA) não carrega motor, então
-  as médias misturam builds.
+1. **Identidade estável** — `Engine.BUILD_ID = 'stockfish-19-lite-single'`.
+   O `id name` do UCI não é usado como chave (muda entre releases).
+2. **Chave com build** — `gameId@depth@build`. A forma legada continua válida.
+3. **Recuperação de análises antigas** — `Engine.buildOf(record)` usa
+   `engineBuild`, depois `build`, depois infere por `engineId`/`engine`
+   (SF19 → build atual; SF10 → `stockfish-10-legacy`; desconhecido →
+   `legacy-unknown`). `isLegacyAnalysis` alimenta o aviso na interface.
+4. **Leitura sem mistura** — `DB.getAnalysis(gameId, build)` prefere o build
+   atual e só cai para o legado se não houver registro do build pedido.
+   `DB.getAnalyses(gameId)` devolve todos, para diagnóstico e limpeza.
+5. **Migração segura** — `migrateAnalysisProvenance` grava `engineBuild` no
+   **mesmo registro e mesma chave**, sem tocar em posições, resumos, `createdAt`
+   ou `version`. Marcador `analysisProvenanceMigration = 1`. Ela roda antes de
+   `migrateAnalysisData`, que só reconstrói registros v1 sem anotações.
+6. **Consistência dos resumos** — `summary.engineBuild` é gravado junto da
+   análise; `game.analyzedBuild` acompanha. As médias de Desempenho ignoram
+   partidas de outro build e exibem a contagem (`stats.otherEngine`).
 
-Regra até a Tarefa 2: **não fazer deploy**. A solução precisa cobrir, junto:
-identidade do build, chave de armazenamento (não apenas `gameId@depth`),
-preservação de `engine`/`engineId` originais no enriquecimento, recuperação de
-análises antigas, consistência dos resumos/estatísticas e migração segura.
-Acrescentar um campo `build` sem mudar a chave **não** resolve a colisão.
+Garantia central: uma análise do SF10 com chave `gameId@depth` **nunca** é
+sobrescrita por `saveAnalysis`, porque esta preserva a `key` existente e a
+análise nova nasce em `gameId@depth@build`.
 
 
 ### 2.4. Conteúdo de IA (`ai`)
@@ -187,7 +216,9 @@ Chave: `key = gameId:kind`; índice `gameId`.
 
 Chave: `key`.
 
-Exemplos: `analysisMigration`, `insights`, `repertoire`. O valor é gravado em
+Exemplos: `analysisMigration` (reconstrução de anotações v1),
+`analysisProvenanceMigration` (carimbo de `engineBuild`/`analyzedBuild`, valor
+`1`), `insights`, `repertoire`. O valor é gravado em
 `{ key, value, createdAt }`.
 
 ### 2.6. Preferências (`localStorage`)
@@ -227,11 +258,17 @@ Ordem visual oficial da Fase 1 (7 categorias):
 A ordem **não** é uma escala linear. O destino da Fase 2 tem 10 categorias
 (Brilhante, Grande Lance, Melhor, Excelente, Bom, Livro, Imprecisão, Erro,
 Chance Perdida, Erro Grosseiro), com critérios versionados, WDL e Expected
-Score. Nada disso está implementado ainda: a atualização do motor (Tarefa 1 da
-Fase 2) habilitará o **WDL**, mas os critérios abaixo continuam em pontos
-percentuais até a Tarefa 2.
+Score.
 
-Critérios atuais (em pontos percentuais de vitória):
+**Estado na Tarefa 2:** o Expected Score já é derivado do WDL (§3.1) e as
+**7 categorias atuais estão aprovadas**. A implementação das 10 categorias foi
+**deferida para uma fase posterior** (§3.2): além dos limiares, "Grande Lance"
+exige MultiPV 2 e "Livro" exige integração com banco de aberturas (ECO) — ambos
+fora do escopo estrito da Fase 2 (motor e precisão). Nenhum limiar foi
+inventado.
+
+Critérios atuais (em pontos percentuais de vitória — agora calculados sobre a
+fonte escolhida para a análise inteira, `wdl` ou `cp`):
 
 | Categoria | Critério resumido |
 |---|---|
@@ -248,29 +285,53 @@ quem jogou. O ACPL usa centipeões e é apenas comparativo.
 
 ### 3.1. Fonte do Expected Score (contrato da versão 3)
 
-**Estado:** documentado; não implementado. O código atual usa somente a curva
-logística sobre `cp`.
+**Estado:** implementado na Tarefa 2. Análises novas com WDL completo gravam
+`version: 3` e `scoreSource: 'wdl'`; as demais permanecem em v2/`cp`.
 
 | Fonte | Cálculo | Quando usar |
 |---|---|---|
-| `wdl` (v3) | `(w + d/2) / 10` → 0–100 | quando `positions[i].wdl` existe e é válido |
-| curva sobre `cp` (v2) | `50 + 50*(2/(1+exp(-0.00368208*cp))-1)` | quando não há `wdl` |
+| `wdl` (v3) | `(w + d/2) / 10` → 0–100 | quando todas as posições avaliadas têm `wdl` válido |
+| curva sobre `cp` (v2) | `50 + 50*(2/(1+exp(-0.00368208*cp))-1)` | quando falta `wdl` em qualquer posição avaliada |
 
 Regras:
 
 1. A fonte é escolhida **por análise**, não por posição: a `version: 3` usa WDL
    em todas as posições avaliadas; se alguma linha não trouxer WDL, a análise
-   permanece na versão 2 e usa a curva.
+   permanece na versão 2 e usa a curva (`scoreSource: 'cp'`).
 2. `mate` continua tendo prioridade: 100% para quem dá mate, 0% para quem
    apanha, independentemente do `wdl`.
 3. A perda continua em pontos percentuais e o ACPL continua em centipeões.
 4. Se o `wdl` for inconsistente (fora de 0–1000 ou soma diferente de 1000),
    descartar o campo e usar a curva — registrando isso no item, sem inventar
-   números.
+   números. `wdlCoverage` publica `evaluated`, `present`, `missing` e `invalid`.
+5. Posições **terminais** são isentas da exigência de WDL: o SF19 não envia o
+   trio nelas. Elas não contam em `evaluated` e continuam decididas por
+   `mate`/`cp`.
+6. `DB.getAnalysis` prefere o build atual; uma análise v2 do SF10 continua
+   legível e nunca é promovida a v3 pelo enriquecimento.
 
-**Estado após a Tarefa 1:** o motor já devolve `wdl` e o campo é gravado nas
-análises **v2**, mas `winPctWhite`, perda e precisão continuam na curva sobre
-`cp`. A `version: 3` é o trabalho da próxima tarefa.
+### 3.2. Categorias deferidas: MultiPV 2 e Livro
+
+**Decisão de 17/11/2026:** a classificação permanece com **7 categorias**. As
+3 restantes do destino de 10 categorias ficam para uma fase futura (Fase 2.5 ou
+Fase 5), porque dependem de insumos que não pertencem ao escopo da Fase 2.
+
+| Categoria | O que falta | Onde entra |
+|---|---|---|
+| **Grande Lance** | `MultiPV 2` no worker (hoje `MultiPV=1`) + critério versionado para o segundo melhor lance | Fase 2.5/5 |
+| **Livro** | Fonte de abertura (usar `vendor/eco/openings.json` como reconhecimento de lances, não apenas nome da abertura) | Fase 2.5/5 |
+| **Bom** | Faixa intermediária entre "Excelente" e "Imprecisão" | Fase 2.5/5, junto da revisão de limiares |
+| Seção 10.11 do Prompt Mestre | Texto com critérios versionados das 10 categorias | Insumo obrigatório antes da implementação |
+
+Regras:
+
+- Nenhum limiar novo é inventado antes da §10.11.
+- `Engine.ANNOTATION_ORDER`, `THRESHOLDS` e os símbolos das 7 categorias atuais
+  não mudam por causa do deferimento.
+- O Expected Score da v3 (WDL) já está pronto para alimentar os critérios
+  futuros; não haverá nova migração de dados de análise.
+- "MultiPV 2" e "Livro" **não** são requisitos de deploy da Fase 2 e não
+  bloqueiam a publicação atual.
 
 
 ---

@@ -343,12 +343,172 @@ lê `State.ai` e exibe provedor/modelo reais.
 - O log de falha de cota passou a ser fixo (`Falha na cota: seguindo sem cota
   rígida.`), sem `error.message`, para não carregar URL/chave do ambiente.
 
-### 12.5. Bloqueador de deploy (proveniência)
+### 12.5. Bloqueador de deploy (proveniência) — **resolvido na Tarefa 2**
 
-A chave de análise continua `gameId@depth`, sem motor. `getAnalysis` escolhe a
-maior profundidade e `enrichAnalysis` devolve v2 intacta; uma análise do SF10
-pode ser lida como se fosse do SF19, e resumos/estatísticas misturam motores.
-**Não fazer deploy** até a Tarefa 2 resolver: identidade do build, chave de
-armazenamento, preservação de metadados, recuperação de análises antigas,
-consistência dos resumos e migração segura. Um campo `build` sozinho **não**
-resolve a colisão enquanto a chave continuar `gameId@depth`.
+A chave `gameId@depth` não identificava o motor: `getAnalysis` escolhia a maior
+profundidade de qualquer build, `enrichAnalysis` podia carimbar o `engineId`
+atual e resumos/estatísticas misturavam motores. A Tarefa 2 resolveu os seis
+pontos em conjunto — identidade do build, chave `gameId@depth@build`,
+preservação de metadados, recuperação com aviso, consistência das médias e
+migração segura. Evidências na §13. O deploy não foi executado.
+
+---
+
+## 13. Tarefa 2 — proveniência, migração e WDL no cálculo — 17/11/2026
+
+### 13.1. O que mudou
+
+| Arquivo | Mudança |
+|---|---|
+| `js/engine.js` | `BUILD_ID`/`BUILD_LABEL`/`LEGACY_BUILD_ID`; `buildOf`, `isLegacyAnalysis`, `isTerminalPosition`, `validWdl`, `wdlWinPct`, `wdlCoverage`; `whiteWinPct(position, index, source)`; `buildAnalysis(..., meta)` grava `version: 3` + proveniência; `enrichAnalysis` não promove histórico |
+| `js/storage.js` | `analysisKey(gameId, depth, build)`; `getAnalysis(gameId, build)` prefere o build atual; `getAnalyses(gameId)`; `saveAnalysis` preserva `key` existente |
+| `js/app.js` | `migrateAnalysisProvenance(force)` antes de `migrateAnalysisData`; marcador `analysisProvenanceMigration` |
+| `js/game.js` | aviso `analysisEngineNote` + botão “Reanalisar com o novo motor”; aviso na aba Análise; `scoreSource` na barra; grava `analyzedBuild` |
+| `index.html` / `style.css` | bloco do aviso de proveniência |
+| `js/report.js` | nota de motor antigo no PDF |
+| `js/settings.js` | lote considera `analyzedBuild !== Engine.BUILD_ID` |
+| `js/stats.js` / `js/analytics.js` | médias de precisão/ACPL excluem outro build; `stats.otherEngine` e nota na interface |
+| `js/pgn.js` | `analyzedBuild: null` no metadado novo |
+| `tests/wdl.test.mjs` | 8 testes de WDL, v3, fallback, `buildOf`, enriquecimento |
+| `tests/storage.test.mjs` | 4 testes de chave e não colisão |
+
+### 13.2. Suíte completa e sintaxe
+
+```text
+node tools/check-syntax.cjs
+→ 16 arquivos js ok, 1 worker ok, 3 api ok, 5 JSON ok
+→ Tudo certo: sintaxe e JSON válidos.
+
+npm test
+→ tests 42 | suites 0 | pass 42 | fail 0 | cancelled 0 | skipped 0
+```
+
+Os 12 testes novos cobrem:
+
+- chave legada `g_1@12` idêntica e chave nova `g_1@12@stockfish-19-lite-single`;
+- SF10, SF19 e outra profundidade sem colisão;
+- `wdlWinPct` = 75 e 35 em exemplos controlados; perspectiva de brancas
+  75 e 65;
+- WDL inválido (soma 950/1001, negativo, não inteiro) descartado sem correção;
+- posição terminal isenta de WDL, com `mate` prioritário;
+- `buildAnalysis` com WDL → `version: 3`, `scoreSource: 'wdl'`, perda 10,
+  anotação `mistake`;
+- sem WDL completo → análise inteira em `version: 2`/`cp` (50/50);
+- `buildOf` reconhece SF19, SF10 e desconhecido;
+- `isLegacyAnalysis` distingue o build atual;
+- enriquecimento preserva `key`, `version`, `engine`, `engineId`, `engineBuild`
+  e a fonte original (`cp`).
+
+### 13.3. Smoke real com IndexedDB (Edge headless)
+
+Harness CDP: analisa de verdade a Opera Game com o SF19 (profundidade 12),
+clona o resultado como um registro legado do SF10 na chave `g_mig_task2@12`,
+recarrega a página para a migração de inicialização rodar, confere o aviso,
+reanalisa pela interface e verifica que o registro antigo continua intacto.
+
+**Análise SF19 de origem (real, não simulada):**
+
+```json
+{ "key": "g_6f68937a_33@12@stockfish-19-lite-single", "version": 3,
+  "engine": "Stockfish 19 Lite WASM", "engineBuild": "stockfish-19-lite-single",
+  "scoreSource": "wdl", "positions": 34, "wdlPositions": 33,
+  "firstWdl": { "w": 61, "d": 934, "l": 5 },
+  "firstWinPct": 52.8, "firstCp": 31,
+  "acpl": { "w": 40, "b": 120 }, "accuracy": { "w": 96.8, "b": 88.2 } }
+```
+
+O primeiro lance tem `cp 31` e `win% 52.8`; a curva logística sobre `cp 31`
+daria ~52,6%, então os dois caminhos coincidem aqui. O que prova a fonte é o
+`scoreSource: "wdl"` e a `wdlCoverage` abaixo.
+
+**Registro legado inserido (chave antiga, sem `engineBuild`, sem WDL):**
+
+```json
+{ "key": "g_mig_task2@12", "version": 2, "engine": "Stockfish 10 (WASM)",
+  "createdAt": 1794882647971, "positions": 34, "firstWdl": null }
+```
+
+**Depois da migração de inicialização:**
+
+```json
+{ "marker": 1, "records": 1, "keys": ["g_mig_task2@12"],
+  "legacy": { "key": "g_mig_task2@12", "engineBuild": "stockfish-10-legacy",
+              "engine": "Stockfish 10 (WASM)", "version": 2,
+              "createdAt": 1794882647971, "positions": 34, "firstWdl": null },
+  "game": { "analyzedDepth": 12, "analyzedBuild": "stockfish-10-legacy",
+            "summaryBuild": "stockfish-10-legacy" },
+  "otherEngineInStats": 1 }
+```
+
+A chave **não** mudou, `version`, `createdAt` e posições **não** foram tocados;
+só `engineBuild` foi carimbado. A análise antiga não entrou nas médias de
+precisão (`otherEngine === 1`) e o resumo da partida recebeu o mesmo build.
+
+**Interface antes da reanálise:**
+
+```json
+{ "analysisKey": "g_mig_task2@12", "isLegacy": true, "noteVisible": true,
+  "noteText": "Análise feita com motor antigo (Stockfish 10). O resultado original foi preservado. Reanalisar com o novo motor",
+  "reanalyzeButton": true,
+  "barHeight": "100%", "graph": true }
+```
+
+O aviso aparece no cabeçalho, o botão de reanálise existe e a aba Análise
+mostra o texto explicativo. A análise antiga continua **navegável**: barra e
+gráfico renderizam.
+
+**Depois de “Reanalisar com o novo motor” (2.113 ms, profundidade 12):**
+
+```json
+{ "records": 2,
+  "keys": ["g_mig_task2@12@stockfish-19-lite-single", "g_mig_task2@12"],
+  "legacyPreserved": { "key": "g_mig_task2@12",
+      "engineBuild": "stockfish-10-legacy", "version": 2,
+      "createdAt": 1794882647971, "positions": 34, "firstWdl": null },
+  "current": { "key": "g_mig_task2@12@stockfish-19-lite-single", "version": 3,
+      "scoreSource": "wdl", "engineBuild": "stockfish-19-lite-single",
+      "positions": 34, "wdlPositions": 33,
+      "wdlCoverage": { "complete": true, "evaluated": 33, "present": 33,
+                       "missing": 0, "invalid": 0 },
+      "acpl": { "w": 40, "b": 120 },
+      "accuracy": { "w": 96.8, "b": 88.2 } },
+  "noteVisible": false, "analysisTabHintHidden": true, "barHeight": "100%" }
+```
+
+Provas centrais:
+
+1. **Não sobrescreveu:** coexistem dois registros; o legado mantém
+   `createdAt`, `version` e as 34 posições originais.
+2. **WDL no cálculo:** a análise nova é `version: 3`, `scoreSource: "wdl"`,
+   com `wdlCoverage.complete: true` (33 posições avaliadas, 33 com WDL, 1
+   terminal isenta).
+3. **UI coerente:** o aviso desaparece e a aba volta ao texto normal.
+4. **Terminalidade preservada:** o último lance `Rd8#` fica com `loss: 0`,
+   `cpLoss: 0` e anotação `best`.
+
+**Limpeza e console:** `remaining: 0` após `DB.deleteGame('g_mig_task2')`;
+`consoleErrors: []` durante todo o fluxo.
+
+### 13.4. O que não foi feito
+
+- **10 categorias:** **deferidas para a Fase 2.5/5** por decisão de 17/11/2026.
+  “Grande Lance” exige MultiPV 2 (hoje `MultiPV=1`), “Livro” exige integração
+  com o banco de aberturas (ECO) e “Bom” depende da revisão dos limiares da
+  §10.11 do Prompt Mestre, que não existe no workspace. Nenhum limiar foi
+  inventado; as **7 categorias atuais estão aprovadas** e já consomem o
+  Expected Score por WDL.
+- **Deploy e push:** não executados. O working tree está pronto para revisão.
+- **Backup real da biblioteca:** depende de exportar/restaurar o JSON no
+  navegador com as partidas reais; o smoke usa uma partida sintética removida
+  ao final.
+- **Groq local:** impossível ponta a ponta com a chave placebo do `.env` local.
+
+### 13.5. Arquivos alterados nesta tarefa
+
+Código: `js/engine.js`, `js/storage.js`, `js/app.js`, `js/game.js`,
+`js/report.js`, `js/settings.js`, `js/stats.js`, `js/analytics.js`, `js/pgn.js`,
+`index.html`, `style.css`.
+Testes: `tests/wdl.test.mjs`, `tests/storage.test.mjs`.
+Documentação: `docs/MODELO-DE-DADOS.md`, `docs/PLANO-FASE-2.md`,
+`docs/ARQUITETURA-INTEGRACAO.md`, `docs/TESTES-FASE-2.md`.
+

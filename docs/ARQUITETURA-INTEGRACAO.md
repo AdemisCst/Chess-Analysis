@@ -157,6 +157,7 @@ erDiagram
         string result
         string dateISO
         number analyzedDepth
+        string analyzedBuild
         boolean favorite
     }
     DATA {
@@ -169,6 +170,8 @@ erDiagram
         string key PK
         string gameId FK
         number depth
+        string engineBuild
+        string scoreSource
         array positions
         array moves
         object accuracy
@@ -220,18 +223,24 @@ erDiagram
 
 - Distribuição atual: `vendor/stockfish/stockfish-19-lite-single.js` +
   `.wasm` (Stockfish 19 Lite WASM, release v19.0.1).
-- Versão confirmada pelo handshake UCI (`id name Stockfish 19 Lite WASM`) e
-  gravada em `analysis.engineId`.
+- **Identidade estável do build:** `Engine.BUILD_ID = 'stockfish-19-lite-single'`.
+  O `id name` do UCI continua em `analysis.engineId` para exibição, mas **não**
+  serve de chave: muda entre releases. O build é gravado em `engineBuild` e
+  entra na chave de armazenamento (`gameId@depth@build`).
 - Protocolo UCI, `Hash=32`, `MultiPV=1`, `UCI_ShowWDL=true`.
 - Análise por profundidade, com progresso por posição.
 - Avaliações convertidas em Win% e perda em pontos percentuais.
-- **WDL:** capturado em `positions[i].wdl` (por-mil), mas ainda **não usado**
-  nos cálculos; a interface segue na curva sobre cp.
+- **WDL:** capturado em `positions[i].wdl` (por-mil) e **usado no Expected
+  Score** quando a cobertura é completa — `(w + d/2)/10`, `version: 3`,
+  `scoreSource: 'wdl'`. Se faltar WDL em alguma posição avaliada, a análise
+  inteira cai para a curva sobre `cp` (`version: 2`). A fonte nunca é misturada
+  por posição.
 - **Posições terminais:** `Engine.terminalResult` valida a FEN com a chess.js
   (um rei de cada lado), grava `mate: 0` no xeque-mate e `cp: 0` no afogamento
   ou material insuficiente, sem consultar o Worker. `depth 0` do motor só é
   aceito quando a terminalidade já foi confirmada — ele também aparece em FEN
-  inválida.
+  inválida. Terminais são isentas da exigência de WDL e o `mate` tem prioridade
+  sobre as duas fontes.
 - **Par JS/WASM:** o bundle deriva o binário do próprio nome
   (`stockfish-19-lite-single.js` → `.wasm`). Renomear um sem o outro quebra o
   motor.
@@ -250,8 +259,17 @@ Chance Perdida, Capivarada.
 **Destino (10 categorias, Fase 2):** Brilhante, Grande Lance, Melhor, Excelente,
 Bom, Livro, Imprecisão, Erro, Chance Perdida, Erro Grosseiro.
 
-Critérios serão versionados e documentados no modelo de dados antes da
-implementação. A ordem visual não implica escala linear.
+**Decisão de escopo (17/11/2026):** os critérios das 10 categorias vêm da Seção
+10.11 do Prompt Mestre, que **não existe no workspace** — os documentos listam
+apenas os nomes. “Grande Lance” exige MultiPV 2 (hoje a análise usa MultiPV 1) e
+“Livro” exige integração com banco de aberturas (ECO). Por fugirem do escopo
+estrito da Fase 2 (motor e precisão), a implementação dessas 3 categorias foi
+**deferida para a Fase 2.5 ou Fase 5**; as **7 categorias atuais estão
+aprovadas**. Nenhum limiar foi inventado. O Expected Score que alimentará os
+critérios **já** é o da §3.1 (WDL na v3), então a futura troca não exigirá nova
+migração de dados.
+
+A ordem visual não implica escala linear.
 
 ---
 
@@ -386,7 +404,8 @@ execução.
 | `PlayerIdentity` | Contrato documentado; implementação na Fase 5 |
 | Stockfish 19/WDL | Implementado e testado (profundidade 6 e 12) |
 | Terminalidade (`depth 0`) | Corrigida e testada; `mate: 0` preservado |
-| Proveniência das análises | **Bloqueador de deploy**; requisito da Tarefa 2 |
+| Proveniência das análises | **Resolvida na Tarefa 2** (chave com build, migração, aviso, v3); deploy não executado |
+| 10 categorias de classificação | **Deferidas para a Fase 2.5/5** (MultiPV 2 + fonte ECO); 7 categorias aprovadas |
 | Central de Análises | Planejada para a Fase 3 |
 | Chess.com/Lichess | Planejado para a Fase 4 |
 
@@ -404,6 +423,9 @@ execução.
 5. A IA em produção usa Groq com chave válida; o `.env` local tem chave
    placebo, então a validação local ponta a ponta continua impossível.
 6. Sem backup real exportado, nenhuma migração de dados pode avançar.
-7. **Proveniência:** como `analysis` é indexada por `gameId@depth`, análises do
-   SF10 podem ser lidas como SF19 e contaminar resumos/estatísticas. Isso
-   bloqueia o deploy até a Tarefa 2.
+7. **Proveniência (resolvida):** `analysis` passou a ser indexada por
+   `gameId@depth@build`; a forma legada `gameId@depth` continua válida e é
+   lida com aviso quando não há registro do build atual. `getAnalysis` prefere
+   o build atual e as estatísticas excluem médias de outro motor
+   (`stats.otherEngine`). Resta o backup real do usuário antes de qualquer
+   deploy.

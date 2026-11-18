@@ -24,6 +24,16 @@
 const Engine = (() => {
     const WORKER_URL = 'vendor/stockfish/stockfish-19-lite-single.js';
 
+    /**
+     * Identidade estável do build. É ela que entra na chave de armazenamento
+     * (`gameId@depth@build`), não o `id name` do UCI: o rótulo do motor pode
+     * mudar entre releases e não serve como chave. Análises antigas, sem este
+     * campo, continuam legíveis e nunca são sobrescritas por uma nova.
+     */
+    const BUILD_ID = 'stockfish-19-lite-single';
+    const BUILD_LABEL = 'Stockfish 19 Lite WASM';
+    const LEGACY_BUILD_ID = 'stockfish-10-legacy';
+
     /* ---------- limiares de anotação (calibráveis) ---------- */
     const THRESHOLDS = {
         blunder: 30,        // ?? a partir de 30pp de perda
@@ -68,7 +78,8 @@ const Engine = (() => {
      * WDL opcional do Stockfish 19 (UCI_ShowWDL): `wdl <w> <d> <l>`, em
      * por-mil, do ponto de vista de quem joga na posição. Devolve null quando
      * o motor não enviou o trio ou quando ele é inconsistente — nunca inventa
-     * um valor. Nesta fase o WDL é apenas registrado, não entra nos cálculos.
+     * um valor. O trio alimenta o Expected Score da versão 3 quando todas as
+     * posições avaliadas o trazem; caso contrário a análise usa a curva de cp.
      */
     function parseWdl(line) {
         const match = line.match(/\bwdl (\d+) (\d+) (\d+)\b/);
@@ -78,6 +89,87 @@ const Engine = (() => {
         const l = Number(match[3]);
         if (w + d + l !== 1000 || w > 1000 || d > 1000 || l > 1000) return null;
         return { w, d, l };
+    }
+
+    /**
+     * Identidade do motor de uma análise/sumário. Registros anteriores a esta
+     * tarefa não têm `engineBuild`; a inferência usa o texto do `id name`, que
+     * é o dado real gravado na época. Nunca inventa um build moderno: o que
+     * não for reconhecido fica como legado desconhecido.
+     */
+    function buildOf(record) {
+        if (!record) return 'legacy-unknown';
+        if (record.engineBuild) return String(record.engineBuild);
+        if (record.build) return String(record.build);
+        const text = `${record.engineId || ''} ${record.engine || ''}`;
+        if (/stockfish[\s_-]*19/i.test(text)) return BUILD_ID;
+        if (/stockfish[\s_-]*10/i.test(text)) return LEGACY_BUILD_ID;
+        return 'legacy-unknown';
+    }
+
+    /** Verdadeiro quando a análise não veio do build atual. */
+    function isLegacyAnalysis(analysis) {
+        return !!analysis && buildOf(analysis) !== BUILD_ID;
+    }
+
+    /**
+     * Posição terminal confirmada: `depth 0`, sem melhor lance/PV e com mate ou
+     * cp. O SF19 não envia WDL nessas posições — por isso elas são isentas da
+     * exigência de WDL e continuam decididas por `mate`/`cp`.
+     */
+    function isTerminalPosition(position) {
+        if (!position) return false;
+        if (position.terminal === true) return true;
+        return position.depth === 0
+            && position.best == null
+            && (!Array.isArray(position.pv) || position.pv.length === 0)
+            && (position.mate != null || position.cp != null);
+    }
+
+    /** WDL válido (por-mil, soma 1000) ou `null`. Não corrige valores ruins. */
+    function validWdl(position) {
+        const wdl = position && position.wdl;
+        if (!wdl) return null;
+        const w = Number(wdl.w);
+        const d = Number(wdl.d);
+        const l = Number(wdl.l);
+        if (![w, d, l].every(value => Number.isInteger(value) && value >= 0 && value <= 1000)) return null;
+        if (w + d + l !== 1000) return null;
+        return { w, d, l };
+    }
+
+    /** Expected Score do lado a jogar, em 0–100, a partir do WDL. */
+    function wdlWinPct(position) {
+        const wdl = validWdl(position);
+        if (!wdl) return null;
+        return (wdl.w + wdl.d / 2) / 10;
+    }
+
+    /**
+     * Cobertura do WDL em uma análise. Posições terminais não contam. A fonte
+     * é escolhida por análise (contrato da v3): só usa WDL se todas as
+     * posições avaliadas trouxerem o trio válido.
+     */
+    function wdlCoverage(positions) {
+        const list = Array.isArray(positions) ? positions : [];
+        let evaluated = 0;
+        let present = 0;
+        let missing = 0;
+        let invalid = 0;
+        list.forEach(position => {
+            if (isTerminalPosition(position)) return;
+            evaluated++;
+            if (!position || !position.wdl) { missing++; return; }
+            if (validWdl(position)) present++;
+            else invalid++;
+        });
+        return {
+            complete: evaluated > 0 && present === evaluated,
+            evaluated,
+            present,
+            missing,
+            invalid,
+        };
     }
 
     function parseInfo(line) {
@@ -337,18 +429,23 @@ const Engine = (() => {
 
     /**
      * Probabilidade de vitória das brancas (0 a 100) na posição `index`.
-     * A curva logística é a mesma usada por ferramentas de análise: converte
-     * centipeões em uma probabilidade estável e simétrica.
+     * A fonte é escolhida por análise:
+     *   - `wdl` (v3): `(w + d/2) / 10`, do ponto de vista de quem joga;
+     *   - `cp` (v2 e legado): curva logística sobre centipeões.
+     * O mate tem prioridade sobre as duas fontes.
      */
-    function whiteWinPct(position, index) {
+    function whiteWinPct(position, index, source) {
         if (!position) return 50;
         if (position.mate != null) {
             const moverWins = position.mate > 0;
             const whiteWins = index % 2 === 0 ? moverWins : !moverWins;
             return whiteWins ? 100 : 0;
         }
+        const wdlScore = source === 'wdl' ? wdlWinPct(position) : null;
         const cp = cpOf(position);
-        const winForSideToMove = 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
+        const winForSideToMove = wdlScore != null
+            ? wdlScore
+            : 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
         return index % 2 === 0 ? winForSideToMove : 100 - winForSideToMove;
     }
 
@@ -440,10 +537,27 @@ const Engine = (() => {
      * Transforma as avaliações posição a posição em uma análise completa.
      * É a função central: usada tanto na análise nova quanto no
      * enriquecimento de análises antigas salvas antes das anotações.
+     *
+     * `meta` preserva a proveniência no enriquecimento (motor, build, versão)
+     * e permite forçar a fonte do Expected Score. Sem `meta`, a v3 é usada
+     * quando todas as posições avaliadas têm WDL válido; caso contrário, a
+     * análise inteira permanece na v2 com a curva sobre cp.
      */
-    function buildAnalysis(gameId, data, positions, depth, createdAt) {
+    function buildAnalysis(gameId, data, positions, depth, createdAt, meta) {
+        const options = meta || {};
+        const coverage = wdlCoverage(positions);
+        let scoreSource = options.scoreSource === 'wdl' || options.scoreSource === 'cp'
+            ? options.scoreSource
+            : (coverage.complete ? 'wdl' : 'cp');
+        if (scoreSource === 'wdl' && !coverage.complete) scoreSource = 'cp';
+        const resolvedEngineId = options.engineId === undefined ? engineId : options.engineId;
+        const engineBuild = options.engineBuild || BUILD_ID;
+        const engineName = options.engine
+            || resolvedEngineId
+            || (engineBuild === BUILD_ID ? BUILD_LABEL : 'Stockfish (WASM)');
+        const version = scoreSource === 'wdl' ? 3 : 2;
         const moves = data.moves || [];
-        const winPctWhite = positions.map((position, index) => whiteWinPct(position, index));
+        const winPctWhite = positions.map((position, index) => whiteWinPct(position, index, scoreSource));
         const evaluated = [];
         const counts = { w: blankCounts(), b: blankCounts() };
         const phaseBlunders = { opening: 0, middlegame: 0, endgame: 0 };
@@ -585,13 +699,16 @@ const Engine = (() => {
 
         return {
             gameId,
-            // v2: o win% continua vindo da curva sobre cp. O campo `wdl` das
-            // posições é apenas registrado nesta fase; a versão 3 (win% a
-            // partir do WDL) só entra na tarefa de classificação.
-            version: 2,
+            // v3: win% e perda derivados do WDL bruto (§3.1 do modelo de dados).
+            // Sem cobertura completa de WDL, a análise permanece v2 e usa a
+            // curva logística sobre cp — a fonte nunca é misturada por posição.
+            version,
             depth,
-            engine: engineId || 'Stockfish (WASM)',
-            engineId: engineId || null,
+            engine: engineName,
+            engineId: resolvedEngineId || null,
+            engineBuild,
+            scoreSource,
+            wdlCoverage: coverage,
             createdAt: createdAt || Date.now(),
             positions,
             moves: evaluated,
@@ -605,6 +722,9 @@ const Engine = (() => {
             phaseBrilliantsByColor,
             keyMoments,
             summary: {
+                engine: engineName,
+                engineBuild,
+                scoreSource,
                 blundersW: counts.w.blunder,
                 blundersB: counts.b.blunder,
                 mistakesW: counts.w.mistake,
@@ -638,8 +758,23 @@ const Engine = (() => {
             && analysis.moves.every(move => move && move.annotation && move.symbol);
         if (complete) return analysis;
         try {
-            const rebuilt = buildAnalysis(analysis.gameId, data, analysis.positions, analysis.depth, analysis.createdAt);
-            rebuilt.key = analysis.key;
+            // Reconstrução não altera a história: mantém o motor, o build e a
+            // fonte originais. Só uma análise já v3 usa WDL; o resto continua
+            // na curva sobre cp, mesmo que o registro tenha wdl armazenado.
+            const rebuilt = buildAnalysis(
+                analysis.gameId,
+                data,
+                analysis.positions,
+                analysis.depth,
+                analysis.createdAt,
+                {
+                    engine: analysis.engine,
+                    engineId: analysis.engineId === undefined ? null : analysis.engineId,
+                    engineBuild: buildOf(analysis),
+                    scoreSource: analysis.scoreSource === 'wdl' ? 'wdl' : 'cp',
+                }
+            );
+            if (analysis.key) rebuilt.key = analysis.key;
             return rebuilt;
         } catch (error) {
             console.warn('Não foi possível enriquecer a análise antiga:', error);
@@ -671,6 +806,9 @@ const Engine = (() => {
     }
 
     return {
+        BUILD_ID,
+        BUILD_LABEL,
+        LEGACY_BUILD_ID,
         THRESHOLDS,
         ANNOTATIONS,
         ANNOTATION_ORDER,
@@ -679,8 +817,14 @@ const Engine = (() => {
         analyzeGame,
         enrichAnalysis,
         buildAnalysis,
+        buildOf,
+        isLegacyAnalysis,
         terminalResult,
         usableInfo,
+        isTerminalPosition,
+        validWdl,
+        wdlWinPct,
+        wdlCoverage,
         annotationInfo,
         stop,
         whiteWinPct,

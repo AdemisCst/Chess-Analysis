@@ -313,7 +313,11 @@ deploy; isso está documentado como limitação.
   relatório não promete variantes do arquivo original; mostra apenas a linha
   calculada pelo Stockfish quando ela existe.
 - A identificação de jogador é provisória.
-- A Central de Análises com fila e checkpoints, as bibliotecas Chess.com/Lichess
-  e a classificação com 10 categorias/WDL pertencem às fases seguintes.
-- A versão real do Stockfish em `vendor/` ainda precisa ser confirmada; o código
-  usa o rótulo “Stockfish 10 (WASM)”.
+- A Central de Análises com fila e checkpoints e as bibliotecas
+  Chess.com/Lichess pertencem às fases seguintes. A classificação atual usa
+  **7 categorias**; as 3 restantes (Grande Lance, Livro, Bom) foram deferidas
+  para a Fase 2.5/5, por exigirem MultiPV 2 e banco de aberturas (ECO). O
+  Expected Score já usa o WDL.
+- O motor em `vendor/` é o Stockfish 19 Lite WASM (release v19.0.1), com
+  identidade `stockfish-19-lite-single`. Análises antigas do Stockfish 10 são
+  preservadas e sinalizadas na interface.

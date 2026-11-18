@@ -89,6 +89,24 @@ function renderGameHeader() {
     $('favBtn').title = game.favorite ? 'Remover dos favoritos' : 'Favoritar';
     $('analyzeBtn').textContent = State.analysis ? '⚡ Reanalisar' : '⚡ Analisar';
 
+    // Aviso de proveniência: nunca esconde que o resultado veio de outro motor
+    // e oferece a reanálise como ação explícita (a antiga não é sobrescrita).
+    const engineNote = $('analysisEngineNote');
+    if (engineNote) {
+        if (Engine.isLegacyAnalysis(State.analysis)) {
+            const build = Engine.buildOf(State.analysis);
+            const label = build === Engine.LEGACY_BUILD_ID
+                ? 'Stockfish 10'
+                : (State.analysis.engine || 'motor anterior');
+            engineNote.classList.remove('hidden');
+            engineNote.innerHTML = `<span>Análise feita com motor antigo (${escapeHtml(label)}). O resultado original foi preservado.</span>
+                <button type="button" class="link-btn" data-act="reanalyze-stale">Reanalisar com o novo motor</button>`;
+        } else {
+            engineNote.classList.add('hidden');
+            engineNote.innerHTML = '';
+        }
+    }
+
     const rows = [
         ['Evento', game.event || '—'],
         ['Local', game.site || '—'],
@@ -182,7 +200,7 @@ function updateEvalBar() {
         return;
     }
     const position = State.analysis.positions[State.ply];
-    const win = Engine.whiteWinPct(position, State.ply);
+    const win = Engine.whiteWinPct(position, State.ply, State.analysis.scoreSource);
     fill.style.height = win + '%';
     const text = evalTextFor(position, State.ply);
     top.textContent = text;
@@ -363,7 +381,12 @@ function renderAnalysisTab() {
         hint.textContent = 'Clique em “Analisar” para gerar a análise com Stockfish.';
         return;
     }
-    hint.classList.add('hidden');
+    if (Engine.isLegacyAnalysis(analysis)) {
+        hint.classList.remove('hidden');
+        hint.textContent = 'Esta análise foi feita com um motor anterior. Os números foram preservados; use “Reanalisar com o novo motor” para gerar uma análise v3 sem apagar a antiga.';
+    } else {
+        hint.classList.add('hidden');
+    }
 
     const accuracy = analysis.accuracy || {};
     const acpl = analysis.acpl || {};
@@ -430,6 +453,7 @@ async function analyzeCurrent() {
         await DB.saveAnalysis(result);
         game.analysisSummary = result.summary;
         game.analyzedDepth = Math.max(game.analyzedDepth || 0, depth);
+        game.analyzedBuild = result.engineBuild;
         if (window.Tags) Tags.apply(game, result, State.data ? State.data.moves : null);
         await DB.put('games', game);
         if (State.current && State.current.id === game.id) {
@@ -644,6 +668,15 @@ function bindGameEvents() {
     });
 
     $('analyzeBtn').addEventListener('click', analyzeCurrent);
+    const engineNote = $('analysisEngineNote');
+    if (engineNote) {
+        engineNote.addEventListener('click', event => {
+            const button = event.target && event.target.closest
+                ? event.target.closest('[data-act="reanalyze-stale"]')
+                : null;
+            if (button) analyzeCurrent();
+        });
+    }
     $('cancelAnalysisBtn').addEventListener('click', () => {
         $('analysisText').textContent = 'Cancelando…';
         if (State.analysisRun) State.analysisRun.abort();

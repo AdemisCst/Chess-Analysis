@@ -103,7 +103,12 @@ async function analyzeAll(onlyGames) {
 
     const depth = Settings.get().depth;
     const scope = Array.isArray(onlyGames) && onlyGames.length ? onlyGames : State.games;
-    const pending = scope.filter(game => !game.analyzedDepth || game.analyzedDepth < depth);
+    // Análise de outro build não conta como "já analisada": a profundidade pode
+    // ser a mesma, mas o motor e a metodologia mudaram.
+    const pending = scope.filter(game => {
+        if (!game.analyzedDepth || game.analyzedDepth < depth) return true;
+        return (game.analyzedBuild || '') !== Engine.BUILD_ID;
+    });
     if (!pending.length) {
         toast(`Todas as partidas já foram analisadas na profundidade ${depth}.`, 'success');
         return;
@@ -151,6 +156,7 @@ async function analyzeAll(onlyGames) {
                 await DB.saveAnalysis(result);
                 game.analysisSummary = result.summary;
                 game.analyzedDepth = Math.max(game.analyzedDepth || 0, depth);
+                game.analyzedBuild = result.engineBuild;
                 if (window.Tags) Tags.apply(game, result, data.moves);
                 await DB.put('games', game);
                 done++;

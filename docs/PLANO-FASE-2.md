@@ -1,9 +1,9 @@
 # Plano da Fase 2 — Chess-Analysis
 
 **Data:** 17/11/2026  
-**Estado:** Tarefa 1 **executada e verificada**; correção da terminalidade
-(`depth 0`) e padronização Groq concluídas em 17/11/2026; Tarefas 2-4 **não
-iniciadas**  
+**Estado:** Tarefa 1 **executada e verificada**; Tarefa 2 **implementada,
+verificada localmente e aprovada** (7 categorias validadas; 3 categorias
+deferidas para a Fase 2.5/5); Tarefas 3-4 **não iniciadas**  
 **Base:** diagnóstico da [§12 de `AUDITORIA-INICIAL.md`](AUDITORIA-INICIAL.md) e
 contrato da [versão 3 em `MODELO-DE-DADOS.md`](MODELO-DE-DADOS.md)
 
@@ -140,36 +140,58 @@ colidem com cache, não há estado preso no navegador.
 | Profundidade 12 (após correção) | **Verificado** | 2.115 ms, 34 posições, ACPL 40/120 |
 | Groq em produção | **Verificado** | `/api/tags` + uma chamada fictícia de `/api/chat` |
 | Consentimento v2 | **Verificado** | versão antiga reabre o modal; “Não enviar” bloqueia |
-| Produção das correções locais | **Não executado** | bloqueado por proveniência; deploy manual |
+| Produção das correções locais | **Não executado** | Tarefa 2 resolvida localmente; deploy aguarda revisão e autorização |
 
 Detalhes em [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).
 
 ---
 
-## 2. Tarefas seguintes da Fase 2 (não iniciadas)
+## 2. Tarefas seguintes da Fase 2
 
-| # | Tarefa | Depende de |
+| # | Tarefa | Estado |
 |---|---|---|
-| 2 | Proveniência das análises + 10 categorias + WDL no cálculo (versão 3) | Tarefa 1 |
-| 3 | Central de Análises com fila e checkpoints | Tarefa 2 |
-| 4 | `PlayerIdentity` | Fase 5 |
+| 2 | Proveniência das análises + WDL no cálculo (versão 3) | **Aprovada**; 3 categorias deferidas para a Fase 2.5/5 |
+| 3 | Central de Análises com fila e checkpoints | Não iniciada (depende da Tarefa 2) |
+| 4 | `PlayerIdentity` | Não iniciada (depende da Fase 5) |
 
-### 2.1. Requisitos obrigatórios da Tarefa 2 (bloqueadores de deploy)
+### 2.1. Tarefa 2 — o que foi entregue
 
-A Tarefa 2 precisa resolver, em conjunto:
+Os seis requisitos que bloqueavam o deploy foram resolvidos juntos:
 
-1. **Identidade do build** do motor gravada na análise e no resumo.
-2. **Chave de armazenamento** que não colida entre motores — `gameId@depth`
-   sozinho não basta; um campo `build` adicional não resolve a colisão.
-3. **Preservação dos metadados originais** (`engine`, `engineId`, build) no
-   `enrichAnalysis`, sem carimbar o motor atual em análise antiga.
-4. **Recuperação de análises antigas** com aviso claro de qual motor as gerou.
-5. **Consistência de resumos e estatísticas**: não somar precisão/ACPL de
-   motores diferentes como se fossem o mesmo.
-6. **Migração segura** do IndexedDB, sem perda e sem reescrever `version: 2`
-   antes de a v3 estar implementada.
-7. **WDL no cálculo** e as 10 categorias só depois dos itens acima.
+| # | Requisito | Implementação | Evidência |
+|---|---|---|---|
+| 1 | Identidade do build | `Engine.BUILD_ID = 'stockfish-19-lite-single'`; `BUILD_LABEL`, `LEGACY_BUILD_ID` | `tests/wdl.test.mjs` |
+| 2 | Chave sem colisão | `gameId@depth@engineBuild`; forma legada `gameId@depth` preservada | `tests/storage.test.mjs` |
+| 3 | Metadados originais | `enrichAnalysis` preserva `engine`, `engineId`, `engineBuild`, `scoreSource`, `version` e `key` | teste dedicado + smoke |
+| 4 | Recuperação de análise antiga | `Engine.buildOf` + `isLegacyAnalysis`; aviso e botão “Reanalisar com o novo motor” | smoke CDP |
+| 5 | Consistência de médias | `stats.otherEngine` exclui precisão/ACPL de outro build e informa a contagem | smoke: `otherEngine === 1` |
+| 6 | Migração segura | `migrateAnalysisProvenance` grava `engineBuild` na mesma chave, sem tocar em `version`/posições/`createdAt`; marcador `analysisProvenanceMigration = 1` | smoke: `createdAt` e `version` idênticos |
+| 7 | WDL no cálculo | `whiteWinPct(..., 'wdl')` = `(w + d/2)/10`; fonte por análise; `version: 3`; fallback íntegro para v2 | `tests/wdl.test.mjs` + smoke v3 |
 
-Enquanto isso, **não fazer deploy**.
+**Decisão de escopo — 10 categorias adiadas.** A Seção 10.11 do Prompt Mestre
+não existe no workspace e o repositório lista apenas os nomes. Além dos
+limiares, "Grande Lance" exige **MultiPV 2** e "Livro" exige **integração com
+banco de aberturas (ECO)** — ambos fora do escopo estrito da Fase 2 (motor e
+precisão). Por decisão registrada em 17/11/2026, essas 3 categorias ficam
+**deferidas para uma fase posterior** (Fase 2.5 ou Fase 5) e as **7 categorias
+atuais estão aprovadas**. Nenhum limiar foi inventado. O Expected Score já é
+calculado sobre WDL, então a futura troca não exigirá nova migração de dados.
 
-Nenhuma delas é declarada pronta por este documento.
+**Deploy:** não executado, por decisão do usuário. O working tree está pronto
+para revisão; o backup real da biblioteca depende de exportar/restaurar o JSON
+no navegador com as partidas reais.
+
+Detalhes e evidências em [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md) §13.
+
+### 2.2. Itens deferidos para fase futura
+
+| Item | Pré-requisito | Destino |
+|---|---|---|
+| **Grande Lance** | MultiPV 2 no worker (hoje `MultiPV=1`) e critério de sacrifício/qualidade do segundo lance | Fase 2.5 ou Fase 5 |
+| **Livro** | Fonte de abertura (ECO/`vendor/eco/openings.json` como base de reconhecimento, não só de nome) | Fase 2.5 ou Fase 5 |
+| **Bom** | Faixa intermediária entre "Excelente" e "Imprecisão" | Fase 2.5 ou Fase 5, junto com a revisão dos limiares |
+| Seção 10.11 do Prompt Mestre | Texto com critérios versionados das 10 categorias | Precisa ser fornecido antes da implementação |
+
+Enquanto isso, `Engine` mantém 7 anotações e `ANNOTATION_ORDER` não muda. A
+`version: 3` da análise (**WDL no Expected Score**) é independente dessa
+decisão e está implementada.

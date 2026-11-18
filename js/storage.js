@@ -135,16 +135,50 @@ const DB = (() => {
     }
 
     /* ---------- atalhos para análise e IA ---------- */
-    function analysisKey(gameId, depth) { return `${gameId}@${depth}`; }
-
-    async function getAnalysis(gameId) {
-        const list = await getByIndex('analysis', 'gameId', gameId);
-        if (!list || !list.length) return null;
-        return list.sort((a, b) => (b.depth - a.depth) || (b.createdAt - a.createdAt))[0];
+    /**
+     * Chave de uma análise. O build entra na chave para que uma análise do
+     * SF10 (`gameId@depth`) e uma do SF19 (`gameId@depth@build`) coexistam:
+     * reanalisar nunca sobrescreve o resultado antigo. Sem o terceiro
+     * argumento, a forma legada é preservada.
+     */
+    function analysisKey(gameId, depth, build) {
+        const base = `${gameId}@${depth}`;
+        return build ? `${base}@${build}` : base;
     }
 
+    /**
+     * Análise de `gameId`, preferindo o build informado (por padrão, o build
+     * atual do motor). Se não houver nenhuma do build atual, devolve a melhor
+     * análise legada — o chamador avisa que ela veio de outro motor. Nunca
+     * mistura registros: a escolha é sempre por build inteiro.
+     */
+    async function getAnalysis(gameId, build) {
+        const list = await getByIndex('analysis', 'gameId', gameId);
+        if (!list || !list.length) return null;
+        const wanted = build !== undefined
+            ? build
+            : (typeof Engine !== 'undefined' && Engine.BUILD_ID ? Engine.BUILD_ID : null);
+        const preferred = wanted
+            ? list.filter(record => (record.engineBuild || record.build || '') === wanted)
+            : [];
+        const pool = preferred.length ? preferred : list;
+        return pool.sort((a, b) => (b.depth - a.depth) || (b.createdAt - a.createdAt))[0];
+    }
+
+    async function getAnalyses(gameId) {
+        const list = await getByIndex('analysis', 'gameId', gameId);
+        return (list || []).sort((a, b) => (b.depth - a.depth) || (b.createdAt - a.createdAt));
+    }
+
+    /**
+     * Grava sem trocar chave existente: o enriquecimento de uma análise antiga
+     * deve continuar no mesmo registro. Análises novas recebem a chave com o
+     * build (`gameId@depth@build`), que não colide com a forma legada.
+     */
     async function saveAnalysis(record) {
-        record.key = analysisKey(record.gameId, record.depth);
+        if (!record.key) {
+            record.key = analysisKey(record.gameId, record.depth, record.engineBuild || record.build);
+        }
         await put('analysis', record);
         return record;
     }
@@ -164,7 +198,7 @@ const DB = (() => {
 
     return {
         open, get, getAll, put, del, clear, count, bulkPut, getByIndex, deleteGame, clearAll,
-        getAnalysis, saveAnalysis, getAI, saveAI, getMeta, saveMeta, analysisKey,
+        getAnalysis, getAnalyses, saveAnalysis, getAI, saveAI, getMeta, saveMeta, analysisKey,
     };
 })();
 

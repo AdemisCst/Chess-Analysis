@@ -469,6 +469,54 @@ function renderRailCount() {
 
 /* ===================== MIGRAÇÃO DAS ANÁLISES ===================== */
 /**
+ * Proveniência: análises gravadas antes desta tarefa não têm `engineBuild`.
+ * A migração grava o build inferido **no mesmo registro e na mesma chave**,
+ * sem tocar em posições, avaliações, resumos ou `version`. Análises do SF10
+ * continuam acessíveis e jamais são sobrescritas por uma reanálise, porque a
+ * análise nova usa `gameId@depth@build`.
+ *
+ * O marcador `analysisProvenanceMigration` evita repetir o trabalho. Ele é
+ * independente de `analysisMigration` (que reconstrói anotações v1).
+ */
+async function migrateAnalysisProvenance(force) {
+    if (!window.Engine || typeof Engine.buildOf !== 'function') return { updated: 0, summaries: 0, skipped: true };
+    const marker = await DB.getMeta('analysisProvenanceMigration').catch(() => null);
+    if (!force && marker && Number(marker.value) >= 1) return { updated: 0, summaries: 0, skipped: true };
+
+    let updated = 0;
+    const records = await DB.getAll('analysis').catch(() => []);
+    for (const record of records) {
+        if (record.engineBuild) continue;
+        const next = Object.assign({}, record, { engineBuild: Engine.buildOf(record) });
+        await DB.put('analysis', next);
+        updated++;
+    }
+
+    let summaries = 0;
+    for (const game of State.games) {
+        if (!game.analysisSummary) continue;
+        let changed = false;
+        if (!game.analysisSummary.engineBuild) {
+            const list = await DB.getByIndex('analysis', 'gameId', game.id).catch(() => []);
+            const best = (list || []).sort((a, b) => (b.depth - a.depth) || (b.createdAt - a.createdAt))[0];
+            game.analysisSummary.engineBuild = Engine.buildOf(best || game.analysisSummary);
+            changed = true;
+        }
+        if (game.analyzedBuild !== game.analysisSummary.engineBuild) {
+            game.analyzedBuild = game.analysisSummary.engineBuild;
+            changed = true;
+        }
+        if (changed) {
+            await DB.put('games', game);
+            summaries++;
+        }
+    }
+
+    await DB.saveMeta('analysisProvenanceMigration', 1).catch(() => {});
+    return { updated, summaries, skipped: false };
+}
+
+/**
  * Análises geradas antes da versão 2 não têm anotações (!!, ★, ×, ??, ?,
  * !, 👍), ACPL nem precisão por fase. Como as posições do Stockfish já estão
  * salvas, é possível reconstruir tudo sem reanalisar nenhuma partida.
@@ -478,6 +526,8 @@ function renderRailCount() {
  */
 async function migrateAnalysisData(force) {
     if (!window.Engine || typeof Engine.enrichAnalysis !== 'function') return { updated: 0, skipped: true };
+    // Reprocessar análises também reaplica a proveniência, sem alterar chaves.
+    if (force) await migrateAnalysisProvenance(true);
     const marker = await DB.getMeta('analysisMigration').catch(() => null);
     if (!force && marker && Number(marker.value) >= 3) return { updated: 0, skipped: true };
 
@@ -499,6 +549,7 @@ async function migrateAnalysisData(force) {
             if (analysisChanged) {
                 await DB.saveAnalysis(enriched);
                 game.analysisSummary = enriched.summary;
+                game.analyzedBuild = Engine.buildOf(enriched);
             }
             await DB.put('games', game);
             updated++;
@@ -580,7 +631,8 @@ async function init() {
         await DB.open();
         await Openings.load().catch(() => []);
         await reloadGames();
-        // Reaproveita análises antigas antes de desenhar estatísticas.
+        // Primeiro carimba a proveniência; depois reaproveita análises antigas.
+        await migrateAnalysisProvenance(false);
         await migrateAnalysisData(false);
     } catch (error) {
         toast('Não foi possível abrir o banco local: ' + error.message, 'error');

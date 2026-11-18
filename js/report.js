@@ -351,6 +351,9 @@ const Report = (() => {
 
     <h1>${esc(game.white)} × ${esc(game.black)}</h1>
     <p class="muted">${esc(formatDate(game.dateISO, game.headers && game.headers.Date))} · ${esc(openingLabel(game))} · ${esc(game.result || '*')}</p>
+    ${analysis && window.Engine && Engine.isLegacyAnalysis(analysis)
+        ? `<p class="small muted">Análise gerada por ${esc(analysis.engine || 'motor anterior')}. O resultado original foi preservado e não foi sobrescrito.</p>`
+        : ''}
 
     <h2>Ficha da partida</h2>
     <table>${fichaRows(game, data, analysis)}</table>

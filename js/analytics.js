@@ -221,8 +221,11 @@ function renderPrecisionPanel(stats) {
     const box = $('precisionPanel');
     if (!box) return;
     const precision = stats.precision;
+    const legacyNote = stats.otherEngine
+        ? `<p class="muted small">${stats.otherEngine} partida(s) com análise de outro motor não entram nestas médias.</p>`
+        : '';
     if (!precision || !precision.user.games) {
-        box.innerHTML = '<p class="muted small">Analise pelo menos uma partida com Stockfish para comparar sua precisão com a dos adversários.</p>';
+        box.innerHTML = '<p class="muted small">Analise pelo menos uma partida com Stockfish para comparar sua precisão com a dos adversários.</p>' + legacyNote;
         return;
     }
     const card = (label, data) => `<div class="precision-card">
@@ -230,7 +233,7 @@ function renderPrecisionPanel(stats) {
         <strong>${pctText(data.accuracy)}</strong>
         <span>ACPL ${data.acpl == null ? '—' : data.acpl} · ${data.games} partida(s)</span>
     </div>`;
-    box.innerHTML = `<div class="precision-grid">${card('Você', precision.user)}${card('Adversários', precision.opponent)}</div>`;
+    box.innerHTML = `<div class="precision-grid">${card('Você', precision.user)}${card('Adversários', precision.opponent)}</div>` + legacyNote;
 }
 
 function renderAnnotationDistribution(stats) {

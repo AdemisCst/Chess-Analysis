@@ -122,6 +122,23 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 }
 .muted { color: var(--text-muted); }
 .small { font-size: 0.85rem; }
+
+/* Aviso discreto de proveniência (análise feita com motor antigo). */
+.analysis-engine-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 0;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warning);
+    border-radius: var(--radius-sm);
+    background: var(--warning-soft);
+    color: var(--text);
+    font-size: 0.82rem;
+}
+.analysis-engine-note .link-btn { margin: 0; }
 .danger { color: var(--danger); border-color: var(--danger); }
 .danger:hover { background: var(--danger-soft); }
 .span-2 { grid-column: span 2; }
