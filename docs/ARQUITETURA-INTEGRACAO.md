@@ -75,7 +75,7 @@ flowchart TB
     SET --> DB
     APP --> LS
     AIJS -->|sempre no site publicado| PROXY[api/chat.js e api/tags.js]
-    PROXY --> PROVIDER[Provedor DeepSeek]
+    PROXY --> PROVIDER[Provedor Groq]
 ```
 
 ### 2.1. Módulos atuais
@@ -227,6 +227,16 @@ erDiagram
 - Avaliações convertidas em Win% e perda em pontos percentuais.
 - **WDL:** capturado em `positions[i].wdl` (por-mil), mas ainda **não usado**
   nos cálculos; a interface segue na curva sobre cp.
+- **Posições terminais:** `Engine.terminalResult` valida a FEN com a chess.js
+  (um rei de cada lado), grava `mate: 0` no xeque-mate e `cp: 0` no afogamento
+  ou material insuficiente, sem consultar o Worker. `depth 0` do motor só é
+  aceito quando a terminalidade já foi confirmada — ele também aparece em FEN
+  inválida.
+- **Par JS/WASM:** o bundle deriva o binário do próprio nome
+  (`stockfish-19-lite-single.js` → `.wasm`). Renomear um sem o outro quebra o
+  motor.
+- A validação de terminalidade roda **somente no navegador**; nenhuma Function
+  da Vercel importa `chess.js`.
 - Evidências de execução: [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).
 
 ### 6.2. Classificações
@@ -254,12 +264,12 @@ sequenceDiagram
     participant U as Usuário
     participant F as Frontend
     participant P as Proxy Vercel
-    participant D as DeepSeek
+    participant D as Groq
     U->>F: solicita resumo/leitura
     F->>F: verifica se envio está habilitado
-    F->>F: verifica consentimento
-    alt sem consentimento
-        F-->>U: modal de autorização
+    F->>F: verifica consentimento (versão atual)
+    alt sem consentimento válido
+        F-->>U: modal de autorização com provedor/modelo reais
     end
     F->>F: minimiza dados (Brancas/Pretas, sem URLs)
     F->>P: POST /api/chat
@@ -279,19 +289,35 @@ sequenceDiagram
 - Nomes reais, usernames, URLs e localização não são enviados quando
   desnecessários.
 - O proxy registra apenas provedor, modelo e status HTTP; não registra prompts,
-  respostas ou chaves.
+  respostas, chaves nem `error.message` de infraestrutura.
 - Erros 401, 429, 503, timeout e rede têm mensagens próprias.
 - `/api/tags` valida a credencial do provedor antes de dizer “online”.
+- O teto de tokens de saída vem de `AI_MAX_TOKENS` (servidor); o navegador não
+  escolhe esse valor.
+- A versão do consentimento (`2026-11-17-v2`) invalida autorizações dadas sob o
+  texto antigo, que identificava outro provedor.
 
 ### 7.3. Provedor implementado
 
-- Provedor: DeepSeek.
-- Base: `https://api.deepseek.com/v1`.
-- Modelo: `deepseek-chat`.
-- Variáveis: `AI_PROVIDER=openai`, `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY`.
-- `AI_ACCESS_MODE` e `AI_ACCESS_CODES` não fazem parte do fluxo.
+Configuração oficial desde 17/11/2026:
+
+- Provedor: **Groq**.
+- Base: `https://api.groq.com/openai/v1`.
+- Modelo: `openai/gpt-oss-120b`.
+- Variáveis: `AI_PROVIDER=openai`, `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY`,
+  `AI_MAX_TOKENS` (padrão 4096; faixa 256–32768).
+- `AI_ACCESS_MODE` e `AI_ACCESS_CODES` não fazem parte do fluxo; são variáveis
+  históricas da Vercel, sem referência no código, e podem ser removidas
+  manualmente. `AMIGO_1` era um código de acesso individual da versão anterior
+  e também é histórica.
 - Sem chave real configurada, a interface informa que o Treinador IA está
   indisponível; não simula resposta.
+- A política de privacidade exibida é a do provedor identificado em
+  `/api/tags` (`https://groq.com/privacy-policy`). Ela cobre o tratamento do
+  provedor; não descreve o armazenamento local do aplicativo.
+- Em produção, `GET /api/tags` confirmou `api.groq.com` e
+  `openai/gpt-oss-120b`; uma chamada fictícia de `/api/chat` devolveu HTTP 200
+  em NDJSON (ver `TESTES-FASE-2.md` §12).
 
 ---
 
@@ -331,12 +357,13 @@ Não implementar antecipadamente na Fase 1. O botão de análise em lote existen
 | Tipo | Ferramenta | Estado |
 |---|---|---|
 | Sintaxe | `tools/check-syntax.cjs` | Executado: todos os arquivos válidos |
-| API/regras | `node --test tests/` | Executado: 15 testes aprovados |
+| API/regras | `node --test tests/` | Executado: **30 testes aprovados** (17/11/2026) |
 | Fumaça no navegador | Edge headless + CDP | Executado: importação, partida, abas, relatório |
-| Análise real | Edge headless + Stockfish | Executado em profundidade 8 |
+| Análise real | Edge headless + Stockfish 19 | Executado em profundidade 6 e 12, com mate |
 | PDF | Edge `--print-to-pdf` | Executado: PDF de 3 páginas |
 | Backups | Edge headless + CDP | Executado com exemplos: exportar → limpar → restaurar → backup prévio |
-| Deploy | Vercel CLI + HTTP | Pendente de variável real e autorização |
+| IA em produção | HTTP + `/api/tags` e `/api/chat` | Executado: Groq, `openai/gpt-oss-120b`, NDJSON |
+| Deploy das correções | Vercel CLI + HTTP | **Não executado** — bloqueado por proveniência |
 
 Evidências em `docs/TESTES-FASE-1.md`. Nenhum teste é declarado aprovado sem
 execução.
@@ -353,11 +380,13 @@ execução.
 | Remoção do dropzone | Implementada na Fase 1 |
 | Remoção do código de acesso | Implementada na Fase 1 |
 | Cinco áreas de navegação | Implementada na Fase 1 |
-| Correção da IA/DeepSeek | Implementada no código; validação ponta a ponta depende de chave real |
-| Consentimento e minimização | Implementados na Fase 1 |
+| Correção da IA/Groq | Implementada e validada em produção (`/api/tags` + uma chamada fictícia); correções locais ainda **não** publicadas |
+| Consentimento e minimização | Implementados; versão `2026-11-17-v2` exige novo aviso |
 | PDF robusto | Implementado e testado com análise real |
 | `PlayerIdentity` | Contrato documentado; implementação na Fase 5 |
-| Stockfish 19/WDL | Planejado para a Fase 2 |
+| Stockfish 19/WDL | Implementado e testado (profundidade 6 e 12) |
+| Terminalidade (`depth 0`) | Corrigida e testada; `mate: 0` preservado |
+| Proveniência das análises | **Bloqueador de deploy**; requisito da Tarefa 2 |
 | Central de Análises | Planejada para a Fase 3 |
 | Chess.com/Lichess | Planejado para a Fase 4 |
 
@@ -372,5 +401,9 @@ execução.
    exibi-los sem mudança de modelo.
 4. A identidade provisória pode atribuir partidas incorretamente; a Fase 5 deve
    corrigir com `PlayerIdentity`.
-5. Sem chave real da DeepSeek, a IA não pode ser validada ponta a ponta.
+5. A IA em produção usa Groq com chave válida; o `.env` local tem chave
+   placebo, então a validação local ponta a ponta continua impossível.
 6. Sem backup real exportado, nenhuma migração de dados pode avançar.
+7. **Proveniência:** como `analysis` é indexada por `gameId@depth`, análises do
+   SF10 podem ser lidas como SF19 e contaminar resumos/estatísticas. Isso
+   bloqueia o deploy até a Tarefa 2.

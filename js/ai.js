@@ -12,8 +12,29 @@
    ======================================================================== */
 
 const AI = (() => {
-    const CONSENT_VERSION = '2026-11-16-v1';
-    const PRIVACY_URL = 'https://api-docs.deepseek.com/';
+    // v2: o provedor passou a ser a Groq e o texto anterior identificava a
+    // DeepSeek. Consentimentos antigos não valem mais: o usuário é avisado
+    // outra vez antes do próximo envio externo.
+    const CONSENT_VERSION = '2026-11-17-v2';
+
+    /**
+     * Política de privacidade por provedor, indexada pelo host público que o
+     * `/api/tags` devolve. O modal identifica o provedor real e só mostra link
+     * quando existe documento conhecido — nunca reaproveita a política de
+     * outro provedor. O documento cobre o tratamento feito pelo provedor; não
+     * descreve o armazenamento local do Chess-Analysis.
+     */
+    const PRIVACY_POLICIES = {
+        'api.groq.com': 'https://groq.com/privacy-policy',
+        'api.deepseek.com': 'https://api-docs.deepseek.com/',
+    };
+
+    function privacyPolicyUrl(label) {
+        const value = String(label || '').toLowerCase();
+        if (!value) return '';
+        const host = Object.keys(PRIVACY_POLICIES).find(key => value.includes(key));
+        return host ? PRIVACY_POLICIES[host] : '';
+    }
 
     const TAG_VOCABULARY = [
         'tático', 'ataque ao rei', 'sacrifício', 'final de peões', 'final de peças',
@@ -80,7 +101,8 @@ Regras obrigatórias:
 
     /** Provedor exibido ao usuário. Vem do /api/tags; não é segredo. */
     function providerInfo() {
-        const remote = window.State && window.State.ai ? window.State.ai : null;
+        // `State` é um `const` de app.js, não uma propriedade de `window`.
+        const remote = (typeof State !== 'undefined' && State && State.ai) ? State.ai : null;
         const label = (remote && remote.providerLabel) || 'provedor externo';
         return { label, model: (remote && remote.model) || config().model || '' };
     }
@@ -99,6 +121,10 @@ Regras obrigatórias:
         if (typeof openModal !== 'function') return false;
 
         const info = providerInfo();
+        const policyUrl = privacyPolicyUrl(info.label);
+        const policy = policyUrl
+            ? `<p class="small"><a href="${policyUrl}" target="_blank" rel="noopener noreferrer">Política de privacidade do provedor (${escapeHtml(info.label)})</a> — documento do próprio provedor, que não descreve o armazenamento local feito pelo Chess-Analysis.</p>`
+            : '<p class="small muted">Consulte a política de privacidade do provedor indicado acima.</p>';
         return new Promise(resolve => {
             let settled = false;
             function finish(value) {
@@ -117,7 +143,7 @@ Regras obrigatórias:
                         <tr><td><strong>Dados enviados</strong></td><td>Lances na notação SAN, avaliações do Stockfish, abertura e resultado. Sem nomes, usernames, URLs, evento ou local.</td></tr>
                     </table>
                     <p class="muted small">A chave do provedor fica somente no servidor. O texto enviado pode ser processado fora do Brasil. Você pode recusar e continuar usando biblioteca, Stockfish, estatísticas e PDF.</p>
-                    <p class="small"><a href="${PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Política do provedor (DeepSeek)</a></p>`,
+                    ${policy}`,
                 footer: `<button class="btn btn-ghost" data-act="deny">Não enviar</button>
                          <button class="btn btn-primary" data-act="allow">Autorizar envio</button>`,
                 onClose: () => finish(false),
@@ -592,6 +618,7 @@ ${docs.length ? docs.join('\n') : 'Nenhum trecho recuperado.'}`,
         TAG_VOCABULARY,
         config,
         useProxy,
+        privacyPolicyUrl,
         describeError,
         check,
         request,

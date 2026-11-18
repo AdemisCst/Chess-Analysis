@@ -37,7 +37,8 @@ Cobertura real:
 - `/api/tags` recusa chave de exemplo com HTTP 503 sem chamar a rede;
 - `/api/chat` recusa configuração incompleta antes de gastar cota;
 - validação de mensagens (corpo vazio, papel inválido, contexto grande);
-- URL e corpo da API compatível com OpenAI/DeepSeek;
+- URL e corpo da API compatível com OpenAI/DeepSeek (histórico: o provedor
+  oficial passou a ser a Groq em 17/11/2026);
 - rótulo público do provedor sem expor chave;
 - mensagens seguras para 401, 404, 429 e 5xx;
 - ausência de `dropZone`, “Código de acesso”, “Detalhes da conexão” e da frase
@@ -47,7 +48,8 @@ Cobertura real:
 - tema padrão escuro com alternativa `body.light`;
 - ordem visual oficial das anotações;
 - identidade nova nos exports e preservação do banco/chave legados;
-- `.env.example` apontando para DeepSeek sem código de acesso.
+- `.env.example` apontando para DeepSeek sem código de acesso (histórico;
+  atualmente aponta para a Groq).
 
 Arquivos: `tests/api.test.mjs` e `tests/static.test.mjs`.
 
@@ -193,7 +195,11 @@ aprovadas:
    chave real precisa estar configurada na Vercel ou em `.env` local. O `.env`
    local contém apenas um valor de exemplo (`sua…`, 14 caracteres) e
    `AI_MODEL=llama-3.3-70b-versatile`; nada disso foi usado para chamar o
-   provedor.
+   provedor. **Atualização (17/11/2026):** a configuração oficial passou a ser
+   Groq/`openai/gpt-oss-120b`; a produção foi validada com `/api/tags` e uma
+   chamada fictícia de `/api/chat`. Evidências em `TESTES-FASE-2.md` §12.
+   O `.env` local continua com chave placebo, então o teste local segue
+   impossível.
 3. **Produção na Vercel**: o deploy de **produção** foi adiado por decisão do
    usuário. O site publicado continua com o código antigo e `/api/tags` responde
    HTTP 401 com “Código de acesso ausente ou inválido”. A branch
@@ -205,5 +211,6 @@ aprovadas:
    do deploy de produção, porque o código antigo ainda depende delas.
 4. **Stockfish 19/WDL**: resolvido na Tarefa 1 da Fase 2. O motor vendorizado
    passou a ser o Stockfish 19 Lite WASM e o WDL é capturado como dado bruto,
-   sem uso visual ainda. Evidências em
+   sem uso visual ainda. A terminalidade (`depth 0`, mate/afogamento) foi
+   corrigida em 17/11/2026. Evidências em
    [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).

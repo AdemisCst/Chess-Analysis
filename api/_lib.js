@@ -10,7 +10,8 @@
      AI_PROVIDER=openai               provedor compatível com OpenAI
      AI_BASE_URL=https://...          obrigatória
      AI_API_KEY=...                   chave real (nunca vai ao navegador)
-     AI_MODEL=deepseek-chat           modelo usado no servidor
+     AI_MODEL=openai/gpt-oss-120b     modelo usado no servidor
+     AI_MAX_TOKENS=4096               teto de tokens de saída (256 a 32768)
      AI_FALLBACK_*                    provedor de reserva opcional
      AI_DAILY_PER_USER=20             ações por IP por dia
      AI_DAILY_GLOBAL=500              ações no total por dia
@@ -138,11 +139,24 @@ export function providerConfig(prefix = 'AI') {
     if (!base) return null;
     return {
         provider: (process.env[`${prefix}_PROVIDER`] || process.env.AI_PROVIDER || 'openai').toLowerCase(),
+        prefix,
         base,
         key: process.env[`${prefix}_API_KEY`] || '',
         model: process.env[`${prefix}_MODEL`] || process.env.AI_MODEL || '',
         path: process.env[`${prefix}_CHAT_PATH`] || '',
     };
+}
+
+/**
+ * Teto de tokens de saída para provedores compatíveis com OpenAI.
+ * Vem apenas do servidor (`AI_MAX_TOKENS` ou `AI_FALLBACK_MAX_TOKENS`):
+ * valores enviados pelo navegador são ignorados. Padrão 4096, limitado à
+ * faixa segura de 256 a 32768 (o `openai/gpt-oss-120b` aceita até 65536).
+ */
+export function maxCompletionTokens(prefix = 'AI') {
+    const raw = Number(process.env[`${prefix}_MAX_TOKENS`]);
+    if (!Number.isFinite(raw) || raw <= 0) return 4096;
+    return Math.min(Math.max(Math.floor(raw), 256), 32768);
 }
 
 /**
@@ -229,6 +243,9 @@ export function upstreamBody(body, config) {
             messages: body.messages,
             stream: true,
             temperature: body.options && body.options.temperature != null ? body.options.temperature : 0.3,
+            // O teto vem do servidor; `body.options` do navegador não define
+            // tokens. Sem isso o provedor usa um padrão baixo e trunca.
+            max_completion_tokens: maxCompletionTokens(config.prefix || 'AI'),
         };
     }
     return {

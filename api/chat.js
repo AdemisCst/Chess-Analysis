@@ -63,7 +63,9 @@ async function applyQuota(identity) {
         return { ok: true, usedByUser, perUser };
     } catch (error) {
         // Se o Redis falhar, não derruba o assistente: segue sem cota rígida.
-        console.warn('Falha na cota:', error.message);
+        // O log não inclui mensagem do erro: ela pode carregar URL/chave do
+        // ambiente e não ajuda o usuário.
+        console.warn('Falha na cota: seguindo sem cota rígida.');
         return { ok: true, usedByUser: null, perUser };
     }
 }

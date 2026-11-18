@@ -86,10 +86,23 @@ test('cliente da IA não guarda código de acesso e usa o proxy do site', async 
     assert.ok(ai.includes('ensureConsent'));
 });
 
-test('.env.example aponta para DeepSeek e não reintroduz código de acesso', async () => {
+test('.env.example aponta para a Groq e não reintroduz código de acesso', async () => {
     const env = await read('.env.example');
-    assert.ok(env.includes('AI_BASE_URL=https://api.deepseek.com/v1'));
-    assert.ok(env.includes('AI_MODEL=deepseek-chat'));
+    assert.ok(env.includes('AI_BASE_URL=https://api.groq.com/openai/v1'));
+    assert.ok(env.includes('AI_MODEL=openai/gpt-oss-120b'));
+    assert.ok(env.includes('AI_MAX_TOKENS=4096'));
+    assert.equal(env.includes('deepseek'), false);
+    assert.equal(env.includes('llama-3.3-70b-versatile'), false);
     assert.equal(env.includes('AI_ACCESS_MODE'), false);
     assert.equal(env.includes('AI_ACCESS_CODES'), false);
+});
+
+test('cliente e proxy não voltam a citar o provedor/modelo antigos', async () => {
+    const ai = await read('js/ai.js');
+    const html = await read('index.html');
+    const lib = await read('api/_lib.js');
+    assert.equal(html.includes('(DeepSeek)'), false);
+    assert.equal(lib.includes('deepseek-chat'), false);
+    assert.ok(ai.includes("'api.groq.com': 'https://groq.com/privacy-policy'"));
+    assert.equal(ai.includes('llama-3.3-70b-versatile'), false);
 });

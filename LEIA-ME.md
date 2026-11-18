@@ -155,25 +155,33 @@ Stockfish; não substitui a análise do motor.
 
 ### 8.1 Provedor
 
-O provedor atual é **DeepSeek**, atrás do proxy da Vercel:
+O provedor atual é a **Groq**, atrás do proxy da Vercel:
 
 - `AI_PROVIDER=openai`
-- `AI_BASE_URL=https://api.deepseek.com/v1`
-- `AI_MODEL=deepseek-chat`
+- `AI_BASE_URL=https://api.groq.com/openai/v1`
+- `AI_MODEL=openai/gpt-oss-120b`
+- `AI_MAX_TOKENS=4096` (opcional; faixa 256–32768)
 - `AI_API_KEY=<chave real, somente no servidor>`
 
 A chave **nunca** chega ao navegador. O cliente fala apenas com `/api/chat` e
 `/api/tags` do próprio site. Não existe código de acesso nem chamada a
-`localhost` no site publicado.
+`localhost` no site publicado. O teto de tokens é definido só no servidor:
+valores enviados pelo navegador são ignorados.
 
 ### 8.2 Privacidade e consentimento
 
 Antes do primeiro envio externo, o aplicativo mostra:
 
-- provedor e modelo;
+- provedor e modelo reais, lidos de `/api/tags`;
 - finalidade;
 - quais dados serão enviados;
-- link para a política do provedor.
+- link para a política do provedor identificado (Groq:
+  `https://groq.com/privacy-policy`). A política cobre o tratamento feito pelo
+  provedor e não descreve o armazenamento local do aplicativo.
+
+A autorização vale para a versão atual do aviso. Quando o texto muda de forma
+relevante — como na troca de provedor para a Groq —, a versão anterior deixa de
+valer e o aviso é mostrado outra vez antes de qualquer novo envio.
 
 O texto enviado é minimizado: lances em SAN, avaliações do Stockfish, abertura e
 resultado. **Não** são enviados nomes, usernames, URLs, evento, local ou tags do
@@ -285,7 +293,7 @@ três páginas.
 
 1. Configure as variáveis de `.env.example` em **Settings → Environment
    Variables** da Vercel.
-2. Use uma chave real da DeepSeek; valores de exemplo são recusados.
+2. Use uma chave real da Groq; valores de exemplo são recusados.
 3. Faça o deploy do projeto estático com as funções em `api/`.
 4. Abra o site publicado e use **Testar assistente**.
 5. Se `/api/tags` retornar 401/403, corrija `AI_API_KEY`; se retornar 404,

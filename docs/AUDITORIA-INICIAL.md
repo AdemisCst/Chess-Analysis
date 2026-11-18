@@ -208,6 +208,13 @@ Não se afirma que o backup real foi validado.
 
 ## 6. Inteligência artificial
 
+> **Registro histórico (Fase 0/1).** As linhas abaixo descrevem o estado
+> observado em 16/11/2026. Em 17/11/2026 a configuração oficial passou a ser
+> **Groq** (`https://api.groq.com/openai/v1`, `openai/gpt-oss-120b`), o
+> `.env.example` foi corrigido, o consentimento foi versionado novamente e a
+> produção foi validada. Este diagnóstico é mantido como registro da decisão;
+> não descreve o estado atual. Ver `TESTES-FASE-2.md` §12.
+
 ### 6.1. Arquitetura atual
 
 ```mermaid
@@ -305,8 +312,9 @@ interface pode mostrar “Assistente pronto” e falhar somente no chat.
    confiável. Não será SPA.
 2. **Fase 1:** estabilizar o shell atual antes da separação física das páginas.
 3. **Dados:** preservar o banco `acervo64` e a chave de preferências existente.
-4. **IA:** provedor DeepSeek; remover código de acesso; cota por IP; consentimento
-   e minimização antes de envio externo.
+4. **IA:** provedor DeepSeek (histórico; desde 17/11/2026 o provedor oficial é
+   a Groq com `openai/gpt-oss-120b`); remover código de acesso; cota por IP;
+   consentimento e minimização antes de envio externo.
 5. **PDF:** manter e tornar robusto nesta fase, com relatório completo gerado a
    partir de dados reais, sem inventar variantes.
 6. **Identidade:** `PlayerIdentity` será documentada na Fase 1 e implementada na
@@ -322,7 +330,7 @@ interface pode mostrar “Assistente pronto” e falhar somente no chat.
 |---|---|---|
 | Exportar backup JSON da biblioteca real | **Bloqueado** | O usuário deve abrir o app no navegador com os dados e usar Ajustes → Backup completo |
 | Testar restauração com dados de exemplo | **Pendente** | Executar no navegador de teste |
-| Confirmar variáveis na Vercel | **Pendente** | Configurar DeepSeek e remover o modo por código |
+| Confirmar variáveis na Vercel | **Pendente** | Configurar DeepSeek e remover o modo por código (histórico: a produção foi configurada com Groq em 17/11/2026; a remoção manual das variáveis antigas continua pendente) |
 | Confirmar versão do Stockfish | **Pendente** | Validar distribuição na Fase 2 |
 | Testar deploy publicado | **Pendente** | Publicar e verificar `/`, `/api/tags` e `/api/chat` |
 
