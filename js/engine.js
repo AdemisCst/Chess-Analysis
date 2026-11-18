@@ -95,11 +95,58 @@ const Engine = (() => {
         };
     }
 
+    /**
+     * Resultado de uma posição terminal, confirmado pela biblioteca de regras.
+     *
+     * O SF19 responde `info depth 0` tanto para posição terminal quanto para
+     * FEN inválida, então `depth 0` sozinho não prova nada. Aqui a FEN é
+     * validada e o estado é classificado antes de qualquer conclusão:
+     *   - xeque-mate: `mate: 0` (o lado a jogar está em mate; o sinal segue a
+     *     convenção do motor, do ponto de vista de quem joga);
+     *   - afogamento ou material insuficiente: `cp: 0` (empate);
+     *   - qualquer outra posição, inclusive FEN inválida: `null`.
+     * O WDL fica `null`: o motor não envia o trio em posição terminal.
+     */
+    function terminalResult(fen) {
+        try {
+            const chess = new Chess(fen);
+            if (typeof chess.validate_fen === 'function') {
+                const validation = chess.validate_fen(fen);
+                if (!validation || !validation.valid) return null;
+            }
+            // O validate_fen desta versão não exige reis; um tabuleiro vazio
+            // seria lido como afogamento. Exigimos um rei de cada lado.
+            const board = String(fen || '').split(/\s+/)[0] || '';
+            const whiteKings = (board.match(/K/g) || []).length;
+            const blackKings = (board.match(/k/g) || []).length;
+            if (whiteKings !== 1 || blackKings !== 1) return null;
+            if (chess.in_checkmate()) {
+                return { cp: null, mate: 0, wdl: null, depth: 0, best: null, pv: [] };
+            }
+            if (chess.in_stalemate() || chess.insufficient_material()) {
+                return { cp: 0, mate: null, wdl: null, depth: 0, best: null, pv: [] };
+            }
+            return null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Só aceita `depth 0` quando `terminalResult` confirmou a terminalidade.
+     * Fora disso a linha é descartada: não se presume que todo `depth 0` é
+     * uma posição terminal válida.
+     */
+    function usableInfo(info, terminal) {
+        if (!info) return false;
+        if (info.depth > 0) return true;
+        return info.depth === 0 && terminal === true;
+    }
+
     function onLine(line) {
         if (!active) return;
         const info = parseInfo(line);
-        // depth 0 é a resposta do SF19 para posição inválida; não pontua.
-        if (info && info.depth > 0 && info.depth >= active.best.depth) {
+        if (usableInfo(info, active.terminal) && info.depth >= active.best.depth) {
             active.best.depth = info.depth;
             active.best.cp = info.type === 'cp' ? info.value : null;
             active.best.mate = info.type === 'mate' ? info.value : null;
@@ -185,6 +232,15 @@ const Engine = (() => {
 
     function evaluate(fen, depth, signal) {
         return new Promise((resolve, reject) => {
+            if (signal && signal.aborted) {
+                reject(new DOMException('Análise cancelada.', 'AbortError'));
+                return;
+            }
+            // Posição terminal não passa pelo motor: o resultado é conhecido e
+            // a linha `depth 0` do SF19 não distingue mate de afogamento nem
+            // de FEN inválida.
+            const terminal = terminalResult(fen);
+            if (terminal) { resolve(terminal); return; }
             if (!worker) { reject(new Error('Stockfish não iniciado.')); return; }
             const id = ++searchCounter;
             let cursor = null;
@@ -203,6 +259,7 @@ const Engine = (() => {
 
             active = {
                 id,
+                terminal: false,
                 best: { cp: null, mate: null, wdl: null, depth: -1, pv: [] },
                 finish: result => {
                     cleanup();
@@ -622,6 +679,8 @@ const Engine = (() => {
         analyzeGame,
         enrichAnalysis,
         buildAnalysis,
+        terminalResult,
+        usableInfo,
         annotationInfo,
         stop,
         whiteWinPct,
