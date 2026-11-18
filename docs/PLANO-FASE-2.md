@@ -1,7 +1,9 @@
 # Plano da Fase 2 — Chess-Analysis
 
 **Data:** 17/11/2026  
-**Estado:** Tarefa 1 **executada e verificada**; Tarefas 2–4 não iniciadas  
+**Estado:** Tarefa 1 **executada e verificada**; correção da terminalidade
+(`depth 0`) e padronização Groq concluídas em 17/11/2026; Tarefas 2-4 **não
+iniciadas**  
 **Base:** diagnóstico da [§12 de `AUDITORIA-INICIAL.md`](AUDITORIA-INICIAL.md) e
 contrato da [versão 3 em `MODELO-DE-DADOS.md`](MODELO-DE-DADOS.md)
 
@@ -131,11 +133,14 @@ colidem com cache, não há estado preso no navegador.
 | Download e SHA-256 | **Verificado** | hashes idênticos ao release |
 | Substituição em `vendor/` | **Verificado** | 3 removidos, 2 adicionados |
 | `js/engine.js` (Worker, WDL, `engineId`) | **Verificado** | smoke real com análise completa |
+| Terminalidade (`depth 0`, mate/afogamento) | **Verificado** | `mate: 0`, `winPctWhite` 100, `Rd8#` sem perda |
 | Interface inalterada | **Verificado** | `winPctWhite` na curva, barra/gráfico/PDF |
 | `stop` no build single-thread | **Verificado** | `bestmove` em 47 ms |
 | Cancelamento e recuperação | **Verificado** | 5 ms; nova análise concluída |
-| Profundidade 12 | **Verificado** | 1.072 ms, 34 posições |
-| Produção | **Não executado** | deploy manual pendente |
+| Profundidade 12 (após correção) | **Verificado** | 2.115 ms, 34 posições, ACPL 40/120 |
+| Groq em produção | **Verificado** | `/api/tags` + uma chamada fictícia de `/api/chat` |
+| Consentimento v2 | **Verificado** | versão antiga reabre o modal; “Não enviar” bloqueia |
+| Produção das correções locais | **Não executado** | bloqueado por proveniência; deploy manual |
 
 Detalhes em [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).
 
@@ -145,8 +150,26 @@ Detalhes em [`docs/TESTES-FASE-2.md`](TESTES-FASE-2.md).
 
 | # | Tarefa | Depende de |
 |---|---|---|
-| 2 | 10 categorias + WDL no cálculo (versão 3) | Tarefa 1 |
+| 2 | Proveniência das análises + 10 categorias + WDL no cálculo (versão 3) | Tarefa 1 |
 | 3 | Central de Análises com fila e checkpoints | Tarefa 2 |
 | 4 | `PlayerIdentity` | Fase 5 |
+
+### 2.1. Requisitos obrigatórios da Tarefa 2 (bloqueadores de deploy)
+
+A Tarefa 2 precisa resolver, em conjunto:
+
+1. **Identidade do build** do motor gravada na análise e no resumo.
+2. **Chave de armazenamento** que não colida entre motores — `gameId@depth`
+   sozinho não basta; um campo `build` adicional não resolve a colisão.
+3. **Preservação dos metadados originais** (`engine`, `engineId`, build) no
+   `enrichAnalysis`, sem carimbar o motor atual em análise antiga.
+4. **Recuperação de análises antigas** com aviso claro de qual motor as gerou.
+5. **Consistência de resumos e estatísticas**: não somar precisão/ACPL de
+   motores diferentes como se fossem o mesmo.
+6. **Migração segura** do IndexedDB, sem perda e sem reescrever `version: 2`
+   antes de a v3 estar implementada.
+7. **WDL no cálculo** e as 10 categorias só depois dos itens acima.
+
+Enquanto isso, **não fazer deploy**.
 
 Nenhuma delas é declarada pronta por este documento.

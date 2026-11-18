@@ -74,7 +74,7 @@ Chave: `key = gameId@depth`; índice `gameId`.
 | `gameId` | string | |
 | `depth` | number | profundidade solicitada |
 | `version` | number | `2` hoje, inclusive com `wdl` bruto; `3` quando o win% passar a derivar do WDL (§2.3.1) |
-| `engine` | string | rótulo de exibição; o motor atual grava “Stockfish 10 (WASM)” |
+| `engine` | string | rótulo de exibição; o motor atual grava “Stockfish 19 Lite WASM” |
 | `engineId` | string \| null | opcional; linha `id name` devolvida pelo UCI. Ausente nas análises antigas |
 | `positions` | array | `{cp, mate, depth, best, pv, wdl?}` por posição |
 | `moves` | array | classificação por meia-jogada |
@@ -115,6 +115,11 @@ Regras do `wdl`:
    `0 0 0` não é valor válido.
 5. É aditivo: `cp`, `mate`, `best` e `pv` continuam obrigatórios e com o mesmo
    significado. Nada é removido nem renomeado.
+6. Em posição terminal, a análise é gravada **sem consultar o motor**:
+   xeque-mate → `{ cp: null, mate: 0, depth: 0, wdl: null }`; afogamento ou
+   material insuficiente → `{ cp: 0, mate: null, depth: 0, wdl: null }`.
+   `mate: 0` significa que o lado a jogar está em mate — não é ausência de
+   avaliação. `depth 0` sozinho não identifica terminalidade.
 
 Conversão canônica para a matriz já existente:
 
@@ -142,6 +147,26 @@ Regras de migração:
 - `enrichAnalysis` não pode inventar `wdl` nem elevar `version` sem executar o
   motor com WDL.
 - Uma análise v3 pode ser lida por código que ignore `wdl` sem perder dados.
+
+#### 2.3.3. Proveniência — bloqueador de deploy
+
+A chave `key = gameId@depth` **não identifica o motor**. Consequências
+verificadas no código atual:
+
+- `DB.getAnalysis(gameId)` devolve a análise de maior profundidade, de
+  qualquer motor;
+- `enrichAnalysis` devolve a v2 intacta, então uma análise do SF10 continua
+  válida e pode ser exibida como se fosse do SF19;
+- ao reconstruir uma análise v1, `buildAnalysis` carimba o `engineId` **atual**
+  do navegador, atribuindo SF19 a posições do SF10;
+- `game.analysisSummary` (Desempenho, Aberturas e IA) não carrega motor, então
+  as médias misturam builds.
+
+Regra até a Tarefa 2: **não fazer deploy**. A solução precisa cobrir, junto:
+identidade do build, chave de armazenamento (não apenas `gameId@depth`),
+preservação de `engine`/`engineId` originais no enriquecimento, recuperação de
+análises antigas, consistência dos resumos/estatísticas e migração segura.
+Acrescentar um campo `build` sem mudar a chave **não** resolve a colisão.
 
 
 ### 2.4. Conteúdo de IA (`ai`)
